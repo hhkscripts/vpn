@@ -25,7 +25,6 @@ required_files=(
   "$CONFIG_DIR/dnsmasq.conf"
   "$CONFIG_DIR/NetworkManager.conf"
   "$CONFIG_DIR/dhcpcd.conf"
-  "$CONFIG_DIR/AdGuardHome.yaml"
   "$CONFIG_DIR/20-hotspot-manager"
   "$CONFIG_DIR/90-hotspot-vpn-policy"
   "$SCRIPT_DIR/hotspot-manager.py"
@@ -167,7 +166,6 @@ copy_file "$GENERATED_HOSTAPD_CONF" /etc/hostapd/hostapd.conf 0644
 copy_file "$CONFIG_DIR/hostapd-override.conf" /etc/systemd/system/hostapd.service.d/override.conf 0644
 copy_file "$CONFIG_DIR/dnsmasq.conf" /etc/dnsmasq.conf 0644
 copy_file "$CONFIG_DIR/NetworkManager.conf" /etc/NetworkManager/NetworkManager.conf 0644
-copy_file "$CONFIG_DIR/AdGuardHome.yaml" /etc/AdGuardHome/AdGuardHome.yaml 0644
 copy_file "$CONFIG_DIR/20-hotspot-manager" /etc/NetworkManager/dispatcher.d/20-hotspot-manager 0755
 copy_file "$CONFIG_DIR/90-hotspot-vpn-policy" /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy 0755
 
@@ -180,13 +178,14 @@ backup_file /etc/default/hostapd
 echo 'DAEMON_CONF="/etc/hostapd/hostapd.conf"' | sudo tee /etc/default/hostapd >/dev/null
 
 log_info "Installing AdGuardHome when missing"
-if ! command -v AdGuardHome >/dev/null 2>&1 && [ ! -x /opt/AdGuardHome/AdGuardHome ]; then
-  agh_installer="$(mktemp /tmp/adguardhome-install.XXXXXX.sh)"
-  curl -s -S -L https://raw.githubusercontent.com/AdguardTeam/AdGuardHome/master/scripts/install.sh -o "$agh_installer"
-  chmod 0755 "$agh_installer"
-  sudo sh "$agh_installer"
-  rm -f "$agh_installer"
-fi
+# AdGuardHome removed per user request - DNS handled directly by dnsmasq
+# if ! command -v AdGuardHome >/dev/null 2>&1 && [ ! -x /opt/AdGuardHome/AdGuardHome ]; then
+#   agh_installer="$(mktemp /tmp/adguardhome-install.XXXXXX.sh)"
+#   curl -s -S -L https://raw.githubusercontent.com/AdguardTeam/AdGuardHome/master/scripts/install.sh -o "$agh_installer"
+#   chmod 0755 "$agh_installer"
+#   sudo sh "$agh_installer"
+#   rm -f "$agh_installer"
+# fi
 
 log_info "Installing manager script from scripts/"
 copy_file "$SCRIPT_DIR/hotspot-manager.py" /usr/local/bin/hotspot-manager.py 0755
@@ -227,8 +226,8 @@ log_info "Restarting NetworkManager and hotspot services"
 sudo systemctl daemon-reload
 sudo systemctl restart NetworkManager
 sudo systemctl unmask hostapd 2>/dev/null || true
-sudo systemctl enable hostapd dnsmasq AdGuardHome
-sudo systemctl restart hostapd dnsmasq AdGuardHome
+sudo systemctl enable hostapd dnsmasq 2>/dev/null || true
+sudo systemctl restart hostapd dnsmasq 2>/dev/null || true
 
 if ! vpn_has_ipv4; then
   connect_vpn_if_available

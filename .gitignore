@@ -1,16 +1,43 @@
-# Secrets and private VPN material
-backup/
-*.ovpn
-*.key
-*.pem
-*.crt
-
-# Runtime/generated files
-__pycache__/
-*.py[cod]
-logs/
-*.log
-
-# Local editor/system files
-.DS_Store
+# Environment
 .env
+.env.local
+*.env.*
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+
+# Editors
+.vscode/
+.idea/
+
+# Dependencies
+node_modules/
+venv/
+.venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+
+# Build artifacts
+dist/
+build/
+target/
+*.pyc
+*.class
+*.o
+*.exe
+*.dll
+*.so
+*.a
+*.obj
+*.out
+
+# System files
+.DS_Store
+Thumbs.db
+coverage/
+htmlcov/
+.coverage
+.gradle/

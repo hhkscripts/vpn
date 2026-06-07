@@ -56,8 +56,8 @@ else
   echo "No backup/system-* directory found; removing managed files and blocks only."
 fi
 
-sudo systemctl stop hostapd dnsmasq AdGuardHome 2>/dev/null || true
-sudo systemctl disable hostapd dnsmasq AdGuardHome 2>/dev/null || true
+sudo systemctl stop hostapd dnsmasq 2>/dev/null || true
+sudo systemctl disable hostapd dnsmasq 2>/dev/null || true
 sudo systemctl stop wpa_supplicant 2>/dev/null || true
 
 if [ -x "$POLICY_SCRIPT" ]; then
@@ -71,7 +71,6 @@ restore_or_remove /etc/hostapd/hostapd.conf "$BACKUP_DIR"
 restore_or_remove /etc/systemd/system/hostapd.service.d/override.conf "$BACKUP_DIR"
 restore_or_remove /etc/dnsmasq.conf "$BACKUP_DIR"
 restore_or_remove /etc/NetworkManager/NetworkManager.conf "$BACKUP_DIR"
-restore_or_remove /etc/AdGuardHome/AdGuardHome.yaml "$BACKUP_DIR"
 restore_or_remove /etc/default/hostapd "$BACKUP_DIR"
 restore_or_remove /etc/NetworkManager/dispatcher.d/20-hotspot-manager "$BACKUP_DIR"
 restore_or_remove /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy "$BACKUP_DIR"
