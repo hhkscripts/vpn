@@ -27,7 +27,7 @@ def run_hotspot_command(args):
     """Run hotspot-manager.py from the host filesystem"""
     try:
         # Use the host path directly since we mount the entire filesystem
-        script_path = "/host/root/Projects/vpn/telegrambot/hotspot-manager.py"
+        script_path = "/host/home/hhk/Projects/vpn/telegrambot/hotspot-manager.py"
         cmd = ["python3", script_path] + args
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         return result.stdout, result.stderr, result.returncode
@@ -35,16 +35,33 @@ def run_hotspot_command(args):
         return "", str(e), -1
 
 async def get_status_text():
-    stdout, stderr, code = run_hotspot_command(["--status"])
+    stdout, stderr, code = run_hotspot_command(["--status", "--telegram"])
     if code != 0 and not stdout:
         return f"Error getting status:\n{stderr}"
     return stdout
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not check_authorization(update.effective_user.id):
+        return
+    
+    help_text = """*Available Commands:*
+
+`status` - Show hotspot and VPN status
+`restart` - Restart hotspot services
+`restart_vpn` - Restart VPN connection
+`fix` - Auto-fix common issues
+`clients` - Show connected clients
+`help` - Show this help message
+
+*Usage:* Send command as plain text (no / needed)"""
+    
+    await update.message.reply_text(help_text, parse_mode='Markdown')
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_authorization(update.effective_user.id):
         await update.message.reply_text("Unauthorized access.")
         return
-    await update.message.reply_text("Welcome! Use commands like: status, restart, fix, clients")
+    await update.message.reply_text("Welcome! Use `help` to see available commands.", parse_mode='Markdown')
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_authorization(update.effective_user.id):
@@ -133,6 +150,8 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         await fix_command(update, context)
     elif text == "clients":
         await clients_command(update, context)
+    elif text == "help":
+        await help_command(update, context)
 
 def main():
     if not BOT_TOKEN:
@@ -147,6 +166,7 @@ def main():
     app.add_handler(CommandHandler("restart_vpn", restart_vpn_command))
     app.add_handler(CommandHandler("fix", fix_command))
     app.add_handler(CommandHandler("clients", clients_command))
+    app.add_handler(CommandHandler("help", help_command))
     
     # Callback for Refresh button
     app.add_handler(CallbackQueryHandler(refresh_callback, pattern="^refresh_status$"))

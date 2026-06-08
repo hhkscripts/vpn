@@ -16,10 +16,10 @@ services:
       - /var/run/dbus:/var/run/dbus
       - /run/systemd:/run/systemd
       - /var/run/docker.sock:/var/run/docker.sock
-    working_dir: /host/root/Projects/vpn/telegrambot
+    working_dir: /host/home/hhk/Projects/vpn/telegrambot
     command: >
       bash -c "
         export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin &&
-        cd /host/root/Projects/vpn/telegrambot &&
+        cd /host/home/hhk/Projects/vpn/telegrambot &&
         exec python3 bot.py
       "
