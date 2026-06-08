@@ -102,7 +102,11 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def refresh_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()  # Acknowledge immediately without text to avoid timeout issues
+    try:
+        await query.answer()  # Acknowledge immediately without text to avoid timeout issues
+    except Exception as e:
+        logger.warning(f"Could not answer callback query: {e}")
+        return  # Exit if we can't acknowledge the query
     
     # Directly call status_command logic to check and update if changed
     # We pass the update directly so status_command knows it's a callback
