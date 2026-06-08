@@ -11,7 +11,9 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USERS = os.getenv("TELEGRAM_ALLOWED_USERS", "")
 ALLOWED_USER_IDS = [int(uid.strip()) for uid in ALLOWED_USERS.split(",") if uid.strip().isdigit()] if ALLOWED_USERS else []
 
-SCRIPT_PATH = "/home/hhk/Projects/vpn/hotspot-manager.py"
+# Get the directory where bot.py is located and construct the path to hotspot-manager.py
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_PATH = os.path.join(SCRIPT_DIR, "hotspot-manager.py")
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -51,14 +53,30 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("🔄 Refresh", callback_data="refresh_status")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    if update.callback_query:
+    # Check if content has changed (to avoid "Message is not modified" error)
+    last_status = context.user_data.get("last_status_text")
+    is_callback = update.callback_query is not None
+
+    if is_callback and last_status == status_text:
+        # Content is the same, just answer the callback without editing
+        await update.callback_query.answer("Status unchanged.")
+        return
+
+    # Save current status for next comparison
+    context.user_data["last_status_text"] = status_text
+
+    if is_callback:
         # Edit existing message if triggered by callback
         try:
             await update.callback_query.edit_message_text(text=status_text, reply_markup=reply_markup)
             await update.callback_query.answer()
         except Exception as e:
             logger.warning(f"Could not edit message: {e}")
-            await update.callback_query.message.reply_text(text=status_text, reply_markup=reply_markup)
+            # Fallback to sending a new message if editing fails (e.g., message too old)
+            try:
+                await update.callback_query.message.reply_text(text=status_text, reply_markup=reply_markup)
+            except Exception as send_error:
+                logger.error(f"Could not send new message either: {send_error}")
     else:
         # Send new message if triggered by command
         await update.message.reply_text(text=status_text, reply_markup=reply_markup)
@@ -66,7 +84,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def refresh_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("Refreshing...")
-    await status_command(update, context) # Re-use status logic to edit message
+    # Directly call status_command logic to check and update if changed
+    await status_command(update, context)
 
 async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_authorization(update.effective_user.id): return

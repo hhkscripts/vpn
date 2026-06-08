@@ -11,5 +11,3 @@ services:
     volumes:
       - /var/run/dbus:/var/run/dbus
       - /etc/systemd:/etc/systemd
-      - ../:/home/app/project # Mount project root to access hotspot-manager.py
-    working_dir: /home/app/project
