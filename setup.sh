@@ -177,6 +177,16 @@ ensure_managed_block /etc/dhcpcd.conf "# BEGIN GoodWifi managed block" "# END Go
 backup_file /etc/default/hostapd
 echo 'DAEMON_CONF="/etc/hostapd/hostapd.conf"' | sudo tee /etc/default/hostapd >/dev/null
 
+# log_info "Installing AdGuardHome when missing"
+# AdGuardHome removed per user request - DNS handled directly by dnsmasq
+# if ! command -v AdGuardHome >/dev/null 2>&1 && [ ! -x /opt/AdGuardHome/AdGuardHome ]; then
+#   agh_installer="$(mktemp /tmp/adguardhome-install.XXXXXX.sh)"
+#   curl -s -S -L https://raw.githubusercontent.com/AdguardTeam/AdGuardHome/master/scripts/install.sh -o "$agh_installer"
+#   chmod 0755 "$agh_installer"
+#   sudo sh "$agh_installer"
+#   rm -f "$agh_installer"
+# fi
+
 log_info "Installing manager script from scripts/"
 copy_file "$SCRIPT_DIR/hotspot-manager.py" /usr/local/bin/hotspot-manager.py 0755
 
