@@ -9,6 +9,7 @@ services:
     ipc: "host"
     uts: "host"
     environment:
+      - TZ=Asia/Yangon
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
     volumes:
@@ -16,6 +17,17 @@ services:
       - /var/run/dbus:/var/run/dbus
       - /run/systemd:/run/systemd
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./hotspot-manager.py:/app/hotspot-manager.py:ro
+      - ./bot.py:/app/bot.py:ro
+      - /etc/hostapd:/etc/hostapd
+      - /etc/dnsmasq.d:/etc/dnsmasq.d
+      - /etc/dnsmasq.conf:/etc/dnsmasq.conf
+      - /run/xtables.lock:/run/xtables.lock
+      - /lib/modules:/lib/modules:ro
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - NET_RAW
     working_dir: /host/home/hhk/Projects/vpn/telegrambot
     command: >
       bash -c "
