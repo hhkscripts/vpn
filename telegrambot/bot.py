@@ -24,9 +24,11 @@ def check_authorization(user_id):
     return user_id in ALLOWED_USER_IDS
 
 def run_hotspot_command(args):
-    """Run hotspot-manager.py with sudo"""
+    """Run hotspot-manager.py from the host filesystem"""
     try:
-        cmd = ["sudo", "python3", SCRIPT_PATH] + args
+        # Use the host path directly since we mount the entire filesystem
+        script_path = "/host/root/Projects/vpn/telegrambot/hotspot-manager.py"
+        cmd = ["python3", script_path] + args
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         return result.stdout, result.stderr, result.returncode
     except Exception as e:
@@ -83,8 +85,10 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def refresh_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer("Refreshing...")
+    await query.answer()  # Acknowledge immediately without text to avoid timeout issues
+    
     # Directly call status_command logic to check and update if changed
+    # We pass the update directly so status_command knows it's a callback
     await status_command(update, context)
 
 async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -5,19 +5,21 @@ services:
     restart: unless-stopped
     network_mode: "host"
     privileged: true
-    pid: host
+    pid: "host"
+    ipc: "host"
+    uts: "host"
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
     volumes:
+      - /:/host:rw
       - /var/run/dbus:/var/run/dbus
-      - /etc/systemd:/etc/systemd
       - /run/systemd:/run/systemd
       - /var/run/docker.sock:/var/run/docker.sock
-      - /etc/hostapd:/etc/hostapd
-      - /etc/dnsmasq.d:/etc/dnsmasq.d
-      - /etc/NetworkManager:/etc/NetworkManager
-      - /var/lib/NetworkManager:/var/lib/NetworkManager
-      - /run/netns:/run/netns
-      - /sys:/sys
-      - /proc:/proc
+    working_dir: /host/root/Projects/vpn/telegrambot
+    command: >
+      bash -c "
+        export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin &&
+        cd /host/root/Projects/vpn/telegrambot &&
+        exec python3 bot.py
+      "

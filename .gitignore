@@ -1,34 +1,13 @@
 ```
 # Dependencies
-node_modules/
-venv/
 .venv/
+venv/
 __pycache__/
-.mypy_cache/
-.pytest_cache/
-.julia/
-zig-cache/
-zig-out/
-
-# Build artifacts
-dist/
-build/
-target/
-*.o
-*.obj
-*.exe
-*.dll
-*.so
-*.a
-*.pyc
-*.class
-*.out
 
 # Logs and temp files
 *.log
 *.tmp
 *.swp
-*.swo
 
 # Environment
 .env
@@ -39,36 +18,25 @@ target/
 .vscode/
 .idea/
 
-# System files
-.DS_Store
-Thumbs.db
+# Docker
+.dockerenv
+!Dockerfile
+!docker-compose.yml
 
-# Coverage
+# Python specific
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+.Python
+*.so
+.coverage
 coverage/
 htmlcov/
-.coverage
+.pytest_cache/
+.mypy_cache/
 
-# Compressed files
-*.zip
-*.gz
-*.tar
-*.tgz
-*.bz2
-*.xz
-*.7z
-*.rar
-*.zst
-*.lz4
-*.lzh
-*.cab
-*.arj
-*.rpm
-*.deb
-*.Z
-*.lz
-*.lzo
-*.tar.gz
-*.tar.bz2
-*.tar.xz
-*.tar.zst
+# OS generated files
+.DS_Store
+Thumbs.db
 ```
