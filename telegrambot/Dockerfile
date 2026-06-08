@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     dnsutils \
     procps \
     kmod \
+    iputils-ping \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
