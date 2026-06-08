@@ -1,1 +1,69 @@
-Nothing should be ignored based on the provided file changes, as only a Python source file (`telegrambot/hotspot-manager.py`) was added without any build artifacts, dependencies, or temporary files.
+```
+# Dependencies
+node_modules/
+venv/
+.venv/
+__pycache__/
+
+# Compiled/Build artifacts
+*.pyc
+*.class
+*.o
+*.exe
+*.dll
+*.so
+*.a
+*.obj
+*.out
+dist/
+build/
+target/
+*.jar
+*.war
+*.zip
+*.tar.gz
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# Logs
+*.log
+
+# System
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Python specific
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+*.so
+.coverage
+.pytest_cache/
+.mypy_cache/
+
+# Docker
+.dockerenv
+Dockerfile*
+docker-compose*
+
+# Git
+.git/
+!.gitignore
+```

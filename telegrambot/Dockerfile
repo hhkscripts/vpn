@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy bot script
 COPY bot.py .
+COPY hotspot-manager.py .
 
 # Create non-root user (optional, but recommended)
 # RUN useradd -m botuser
