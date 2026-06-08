@@ -428,13 +428,19 @@ def print_status(status: HotspotStatus, telegram_format: bool = False, html_form
     ping_target = ping.get("target", CONFIG["ping_target"])
     ping_summary = ping.get("summary", "No ping result")
     
+    # Format ping target as code for Telegram/HTML
+    if telegram_format or html_format:
+        ping_target_display = fmt_code(ping_target)
+    else:
+        ping_target_display = ping_target
+    
     # Format ping summary as code inside spoiler for Telegram
     if telegram_format or html_format:
         ping_display = fmt_spoiler_code(ping_summary)
-        lines.append(f"{ping_icon} Ping {fmt_code(ping_target)}: {ping_display}")
+        lines.append(f"{ping_icon} Ping {ping_target_display}: {ping_display}")
     else:
         ping_display = ping_summary
-        lines.append(f"  {ping_icon} Ping {ping_target}: {ping_display}")
+        lines.append(f"  {ping_icon} Ping {ping_target_display}: {ping_display}")
     
     if ping.get("avg_ms") and ping.get("avg_ms") != "?":
         rtt_loss = f"RTT avg: {ping['avg_ms']} ms | Loss: {ping.get('loss', '?')}%"
