@@ -44,24 +44,24 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_authorization(update.effective_user.id):
         return
     
-    help_text = """*Available Commands:*
+    help_text = """<b>Available Commands:</b>
 
-`status` - Show hotspot and VPN status
-`restart` - Restart hotspot services
-`restart_vpn` - Restart VPN connection
-`fix` - Auto-fix common issues
-`clients` - Show connected clients
-`help` - Show this help message
+<code>status</code> - Show hotspot and VPN status
+<code>restart</code> - Restart hotspot services
+<code>restart_vpn</code> - Restart VPN connection
+<code>fix</code> - Auto-fix common issues
+<code>clients</code> - Show connected clients
+<code>help</code> - Show this help message
 
-*Usage:* Send command as plain text (no / needed)"""
+<b>Usage:</b> Send command as plain text (no / needed)"""
     
-    await update.message.reply_text(help_text, parse_mode='Markdown')
+    await update.message.reply_text(help_text, parse_mode='HTML')
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_authorization(update.effective_user.id):
         await update.message.reply_text("Unauthorized access.")
         return
-    await update.message.reply_text("Welcome! Use `help` to see available commands.", parse_mode='Markdown')
+    await update.message.reply_text("Welcome! Use <code>help</code> to see available commands.", parse_mode='HTML')
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_authorization(update.effective_user.id):
@@ -87,18 +87,18 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_callback:
         # Edit existing message if triggered by callback
         try:
-            await update.callback_query.edit_message_text(text=status_text, reply_markup=reply_markup)
+            await update.callback_query.edit_message_text(text=status_text, reply_markup=reply_markup, parse_mode='HTML')
             await update.callback_query.answer()
         except Exception as e:
             logger.warning(f"Could not edit message: {e}")
             # Fallback to sending a new message if editing fails (e.g., message too old)
             try:
-                await update.callback_query.message.reply_text(text=status_text, reply_markup=reply_markup)
+                await update.callback_query.message.reply_text(text=status_text, reply_markup=reply_markup, parse_mode='HTML')
             except Exception as send_error:
                 logger.error(f"Could not send new message either: {send_error}")
     else:
         # Send new message if triggered by command
-        await update.message.reply_text(text=status_text, reply_markup=reply_markup)
+        await update.message.reply_text(text=status_text, reply_markup=reply_markup, parse_mode='HTML')
 
 async def refresh_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

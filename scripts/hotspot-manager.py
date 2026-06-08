@@ -4,6 +4,7 @@ Raspberry Pi Hotspot Manager - Smart Monitoring
 """
 
 import argparse
+import html
 import re
 import subprocess
 import sys
@@ -272,46 +273,109 @@ def get_status() -> HotspotStatus:
     }
 
 
-def print_status(status: HotspotStatus) -> None:
-    print("\n" + "=" * 55)
-    print(f"{Colors.BOLD}   HOTSPOT STATUS{Colors.RESET}")
-    print("=" * 55)
+def print_status(status: HotspotStatus, telegram_format: bool = False) -> str:
+    if telegram_format:
+        # HTML Formatting for Telegram
+        lines = []
+        lines.append("<b>📡 HOTSPOT STATUS</b>")
+        lines.append("")
+        
+        # Services
+        lines.append("<b>🔧 SERVICES:</b>")
+        for service, ok in status["services"].items():
+            icon = "✅" if ok else "❌"
+            state = "Running" if ok else "Stopped"
+            lines.append(f"{icon} <code>{service}</code>: {state}")
+        lines.append("")
+        
+        # VPN
+        lines.append("<b>🔒 VPN:</b>")
+        vpn_connected = status["vpn"]["connected"]
+        icon = "✅" if vpn_connected else "❌"
+        lines.append(f"{icon} Connected: <code>{vpn_connected}</code>")
+        if vpn_connected:
+            if status["vpn"].get("ip"):
+                lines.append(f"• Tunnel IP: <tg-spoiler><code>{status['vpn']['ip']}</code></tg-spoiler>")
+            if status["vpn"].get("external_ip"):
+                lines.append(f"• VPN Exit IP: <tg-spoiler><code>{status['vpn']['external_ip']}</code></tg-spoiler>")
+        lines.append("")
+        
+        # Hotspot
+        lines.append("<b>📶 HOTSPOT:</b>")
+        hotspot_active = status["hotspot"]["broadcasting"]
+        icon = "✅" if hotspot_active else "❌"
+        ssid = get_hotspot_ssid()
+        lines.append(f"{icon} SSID: <code>{ssid}</code>")
+        lines.append(f"• Clients: <code>{status['hotspot']['clients']}</code>")
+        lines.append("")
+        
+        # Network
+        lines.append("<b>🌐 NETWORK:</b>")
+        dns_ok = status["dns_working"]
+        internet_ok = status["internet"]
+        ping = status.get("ping", {})
+        ping_result = ping.get("summary") if ping else None
+        
+        lines.append(f"{'✅' if dns_ok else '❌'} DNS: <code>{'Working' if dns_ok else 'Failed'}</code>")
+        lines.append(f"{'✅' if internet_ok else '❌'} Internet: <code>{'Available' if internet_ok else 'Down'}</code>")
+        
+        ping_target = ping.get("target", CONFIG["ping_target"]) if ping else CONFIG["ping_target"]
+        
+        if ping_result and ping_result != "No ping result":
+            safe_ping = html.escape(ping_result)
+            lines.append(f"{'✅' if internet_ok else '❌'} Ping <code>{ping_target}</code>: <tg-spoiler><code>{safe_ping}</code></tg-spoiler>")
+            # Extract RTT if available
+            if ping.get("avg_ms") and ping.get("avg_ms") != "?":
+                loss = ping.get("loss", "?")
+                lines.append(f"  └─ <code>RTT avg: {ping['avg_ms']} ms | Loss: {loss}%</code>")
+        else:
+            lines.append(f"{'✅' if internet_ok else '❌'} Ping <code>{ping_target}</code>: <tg-spoiler><code>No ping result</code></tg-spoiler>")
+            
+        return "\n".join(lines)
+    
+    # Terminal Formatting (Original)
+    output = []
+    output.append("\n" + "=" * 55)
+    output.append(f"{Colors.BOLD}   HOTSPOT STATUS{Colors.RESET}")
+    output.append("=" * 55)
 
-    print(f"\n{Colors.BOLD}SERVICES:{Colors.RESET}")
+    output.append(f"\n{Colors.BOLD}SERVICES:{Colors.RESET}")
     for service, ok in status["services"].items():
         icon = "✅" if ok else "❌"
-        print(f"  {icon} {service:<12} {'Running' if ok else 'Stopped'}")
+        output.append(f"  {icon} {service:<12} {'Running' if ok else 'Stopped'}")
 
-    print(f"\n{Colors.BOLD}VPN:{Colors.RESET}")
+    output.append(f"\n{Colors.BOLD}VPN:{Colors.RESET}")
     icon = "✅" if status["vpn"]["connected"] else "❌"
-    print(f"  {icon} Connected: {status['vpn']['connected']}")
+    output.append(f"  {icon} Connected: {status['vpn']['connected']}")
     if status["vpn"].get("ip"):
-        print(f"    Tunnel IP: {status['vpn']['ip']}")
+        output.append(f"    Tunnel IP: {status['vpn']['ip']}")
     if status["vpn"].get("external_ip"):
-        print(f"    VPN Exit IP: {status['vpn']['external_ip']}")
+        output.append(f"    VPN Exit IP: {status['vpn']['external_ip']}")
 
-    print(f"\n{Colors.BOLD}HOTSPOT:{Colors.RESET}")
+    output.append(f"\n{Colors.BOLD}HOTSPOT:{Colors.RESET}")
     icon = "✅" if status["hotspot"]["broadcasting"] else "❌"
-    print(f"  {icon} SSID: {get_hotspot_ssid()}")
-    print(f"    Clients: {status['hotspot']['clients']}")
+    output.append(f"  {icon} SSID: {get_hotspot_ssid()}")
+    output.append(f"    Clients: {status['hotspot']['clients']}")
 
-    print(f"\n{Colors.BOLD}NETWORK:{Colors.RESET}")
+    output.append(f"\n{Colors.BOLD}NETWORK:{Colors.RESET}")
     dns_icon = "✅" if status["dns_working"] else "❌"
-    print(f"  {dns_icon} DNS: {'Working' if status['dns_working'] else 'Failed'}")
+    output.append(f"  {dns_icon} DNS: {'Working' if status['dns_working'] else 'Failed'}")
 
     internet_icon = "✅" if status["internet"] else "❌"
     internet_state = "Available" if status["internet"] else "Down"
-    print(f"  {internet_icon} Internet: {internet_state}")
+    output.append(f"  {internet_icon} Internet: {internet_state}")
 
     ping = status.get("ping", {})
     ping_icon = "✅" if ping.get("ok") else "❌"
     ping_target = ping.get("target", CONFIG["ping_target"])
     ping_summary = ping.get("summary", "No ping result")
-    print(f"  {ping_icon} Ping {ping_target}: {ping_summary}")
+    output.append(f"  {ping_icon} Ping {ping_target}: {ping_summary}")
     if ping.get("avg_ms") and ping.get("avg_ms") != "?":
-        print(f"    RTT avg: {ping['avg_ms']} ms | Loss: {ping.get('loss', '?')}%")
+        output.append(f"    RTT avg: {ping['avg_ms']} ms | Loss: {ping.get('loss', '?')}%")
 
-    print("=" * 55 + "\n")
+    output.append("=" * 55 + "\n")
+    
+    return "\n".join(output)
 
 
 def main() -> None:
@@ -321,6 +385,7 @@ def main() -> None:
     parser.add_argument("-rv", "--restart-vpn", action="store_true")
     parser.add_argument("-f", "--fix", action="store_true")
     parser.add_argument("--clients", action="store_true")
+    parser.add_argument("--telegram", action="store_true", help="Output in HTML format for Telegram")
 
     args = parser.parse_args()
 
@@ -328,7 +393,8 @@ def main() -> None:
         args.status = True
 
     if args.status:
-        print_status(get_status())
+        output = print_status(get_status(), telegram_format=args.telegram)
+        print(output)
 
     if args.clients:
         print(f"Clients: {check_clients()}")
@@ -338,7 +404,8 @@ def main() -> None:
 
     if args.fix:
         fix_hotspot()
-        print_status(get_status())
+        output = print_status(get_status(), telegram_format=args.telegram)
+        print(output)
 
     if args.restart:
         fix_hotspot()
