@@ -54,7 +54,7 @@ class HotspotStatus(TypedDict):
 
 
 CONFIG: Config = {
-    "services": ["hostapd", "dnsmasq", "AdGuardHome"],
+    "services": ["hostapd", "dnsmasq"],
     "vpn_name": "pi",
     "default_hotspot_ssid": "GoodWifi",
     "hostapd_conf": "/etc/hostapd/hostapd.conf",
@@ -240,7 +240,7 @@ def restart_vpn() -> bool:
 
 def fix_hotspot() -> bool:
     log("Restarting hotspot services...")
-    run_args(["sudo", "systemctl", "restart", "hostapd", "dnsmasq", "AdGuardHome"])
+    run_args(["sudo", "systemctl", "restart", "hostapd", "dnsmasq"])
     time.sleep(2)
     vpn_ok = restart_vpn()
     run_args(

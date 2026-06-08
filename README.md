@@ -28,7 +28,8 @@ That makes the Pi itself use the VPN and can break Docker networking, DNS, SSH, 
 - `NetworkManager`: manages Ethernet and OpenVPN connection `pi`
 - `configs/90-hotspot-vpn-policy`: keeps host traffic on `eth0` and routes hotspot clients through `tun0` using project-owned firewall chains
 - `scripts/vpn-routing.sh`: editable mirror of the installed dispatcher policy
-- `scripts/hotspot-manager.py`: status/fix CLI used by aliases
+- `scripts/hotspot-manager.py`: status/fix CLI used by aliases and Telegram Bot
+- `telegrambot/`: Telegram Bot for remote hotspot control via Docker
 
 ## Prerequisites
 
@@ -73,9 +74,16 @@ vpn/
 │   ├── dhcpcd.conf
 │   ├── 20-hotspot-manager
 │   └── 90-hotspot-vpn-policy
-└── scripts/
-    ├── hotspot-manager.py
-    └── vpn-routing.sh
+├── scripts/
+│   ├── hotspot-manager.py
+│   └── vpn-routing.sh
+└── telegrambot/
+    ├── bot.py
+    ├── Dockerfile
+    ├── docker-compose.yml
+    ├── requirements.txt
+    ├── .env.example
+    └── README.md
 ```
 
 Installed live files:
@@ -220,6 +228,81 @@ NETWORK:
 ```
 
 The `NETWORK` section is a Pi host check. Client VPN routing is verified separately with the commands in "Routing Verification" below.
+
+### Telegram Bot Control
+
+Control your hotspot remotely via Telegram Bot. The bot runs in Docker and uses the same `hotspot-manager.py` commands internally.
+
+#### Setup Instructions
+
+1. **Get a Bot Token**:
+   - Open Telegram and search for `@BotFather`
+   - Send `/newbot` command and follow instructions
+   - Copy the API token provided
+
+2. **Configure Environment**:
+   ```bash
+   cd telegrambot
+   cp .env.example .env
+   nano .env
+   ```
+   Add your bot token:
+   ```
+   TELEGRAM_BOT_TOKEN=your_bot_token_here
+   TELEGRAM_ALLOWED_USERS=your_telegram_user_id (optional)
+   ```
+
+3. **Run with Docker**:
+   ```bash
+   docker-compose up -d --build
+   ```
+
+4. **Verify**:
+   - Send `/start` to your bot in Telegram to test
+
+#### Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Start the bot and see welcome message |
+| `/status` | Check hotspot status with refresh button (updates existing message) |
+| `/restart` | Restart all hotspot services |
+| `/restart_vpn` | Restart VPN connection only |
+| `/fix` | Auto-fix common hotspot issues |
+| `/clients` | Show connected clients count |
+| `/help` | Display help message |
+
+#### Features
+
+- **Message Updates**: Status messages update in-place instead of creating new messages
+- **User Authorization**: Optional whitelist via `TELEGRAM_ALLOWED_USERS`
+- **Docker Isolation**: Runs in isolated container for security
+- **Auto-Reconnect**: Automatically reconnects to Telegram if connection is lost
+
+#### GitHub Secrets Integration
+
+For automated deployments, store your bot token in GitHub Secrets:
+
+1. Go to **Repository Settings** → **Secrets and variables** → **Actions**
+2. Add new secrets:
+   - `TELEGRAM_BOT_TOKEN`: Your bot token from BotFather
+   - `TELEGRAM_ALLOWED_USERS`: (Optional) Your Telegram user ID
+
+3. Use in GitHub Actions workflow:
+   ```yaml
+   - name: Deploy Telegram Bot
+     run: |
+       cd telegrambot
+       echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" > .env
+       docker-compose up -d --build
+   ```
+
+#### Troubleshooting
+
+- Check logs: `docker-compose logs -f`
+- Verify token is correct in `.env`
+- Ensure Docker is running: `systemctl status docker`
+- Check bot status: Send `/status` command in Telegram
 
 Restart hotspot services and reapply routing policy:
 

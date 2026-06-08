@@ -1,0 +1,53 @@
+name: Deploy Telegram Bot
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'telegrambot/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create .env file from Secrets
+        run: |
+          cd telegrambot
+          echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" > .env
+          if [ -n "${{ secrets.TELEGRAM_ALLOWED_USERS }}" ]; then
+            echo "TELEGRAM_ALLOWED_USERS=${{ secrets.TELEGRAM_ALLOWED_USERS }}" >> .env
+          fi
+          # Debug: Show allowed users count (not values)
+          if [ -n "${{ secrets.TELEGRAM_ALLOWED_USERS }}" ]; then
+            USER_COUNT=$(echo "${{ secrets.TELEGRAM_ALLOWED_USERS }}" | tr ',' '\n' | wc -l)
+            echo "Configured for $USER_COUNT authorized users."
+          fi
+
+      - name: Build and Run with Docker Compose
+        run: |
+          cd telegrambot
+          # Stop existing container if running
+          docker compose down || true
+          # Build and start new container
+          docker compose up -d --build
+          # Show logs to confirm startup
+          docker compose logs -f &
+          sleep 5
+          docker compose ps
+
+      - name: Verify Deployment
+        run: |
+          cd telegrambot
+          if docker compose ps | grep -q "Up"; then
+            echo "✅ Telegram Bot deployed successfully!"
+          else
+            echo "❌ Deployment failed or container not running."
+            docker compose logs
+            exit 1
+          fi

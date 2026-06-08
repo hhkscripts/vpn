@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  telegrambot:
+    build: .
+    container_name: hotspot-telegrambot
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS:-}
+    volumes:
+      # Allow bot to run hotspot-manager.py with sudo
+      - /usr/local/bin/hotspot-manager.py:/usr/local/bin/hotspot-manager.py:ro
+      # Optional: Mount logs if needed
+      - /var/log/hotspot-manager.log:/var/log/hotspot-manager.log:ro
+    network_mode: host
+    # Run as root to allow sudo commands (required for hotspot control)
+    user: root
