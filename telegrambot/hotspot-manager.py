@@ -272,20 +272,30 @@ def get_status() -> HotspotStatus:
     }
 
 
-def print_status(status: HotspotStatus, telegram_format: bool = False) -> None:
+def print_status(status: HotspotStatus, telegram_format: bool = False, html_format: bool = False) -> None:
     # Helper to format text for telegram (code blocks + spoilers) or plain terminal
     def fmt_code(text: str) -> str:
+        if html_format:
+            return f"<code>{text}</code>"
         return f"`{text}`" if telegram_format else text
 
     def fmt_spoiler_code(text: str) -> str:
-        # Telegram: ||`code`||  (spoiler containing code)
+        # Telegram: ||`code`|| (spoiler containing code) for Markdown
+        # HTML: <tg-spoiler><code>text</code></tg-spoiler>
+        if html_format:
+            return f"<tg-spoiler><code>{text}</code></tg-spoiler>"
         return f"||`{text}`||" if telegram_format else text
+
+    def fmt_bold(text: str) -> str:
+        if html_format:
+            return f"<b>{text}</b>"
+        return f"*{text}*" if telegram_format else text
 
     lines = []
     
     # Header - Clean UI without ASCII borders for Telegram
-    if telegram_format:
-        lines.append("*📡 HOTSPOT STATUS*")
+    if telegram_format or html_format:
+        lines.append(fmt_bold("📡 HOTSPOT STATUS"))
         lines.append("")
     else:
         lines.append("\n" + "=" * 55)
@@ -293,80 +303,80 @@ def print_status(status: HotspotStatus, telegram_format: bool = False) -> None:
         lines.append("=" * 55)
 
     # Services Section
-    if telegram_format:
-        lines.append("*🔧 SERVICES:*")
+    if telegram_format or html_format:
+        lines.append(fmt_bold("🔧 SERVICES:"))
     else:
         lines.append(f"\n{Colors.BOLD}SERVICES:{Colors.RESET}")
         
     for service, ok in status["services"].items():
         icon = "✅" if ok else "❌"
         state = "Running" if ok else "Stopped"
-        if telegram_format:
-            lines.append(f"{icon} `{service}`: {state}")
+        if telegram_format or html_format:
+            lines.append(f"{icon} {fmt_code(service)}: {state}")
         else:
             lines.append(f"  {icon} {service:<12} {state}")
 
     # VPN Section
-    if telegram_format:
+    if telegram_format or html_format:
         lines.append("")
-        lines.append("*🔒 VPN:*")
+        lines.append(fmt_bold("🔒 VPN:"))
     else:
         lines.append(f"\n{Colors.BOLD}VPN:{Colors.RESET}")
         
     icon = "✅" if status["vpn"]["connected"] else "❌"
-    if telegram_format:
-        lines.append(f"{icon} Connected: `{status['vpn']['connected']}`")
+    if telegram_format or html_format:
+        lines.append(f"{icon} Connected: {fmt_code(str(status['vpn']['connected']))}")
     else:
         lines.append(f"  {icon} Connected: {status['vpn']['connected']}")
         
     if status["vpn"].get("ip"):
         ip_text = fmt_spoiler_code(status['vpn']['ip'])
-        if telegram_format:
+        if telegram_format or html_format:
             lines.append(f"  • Tunnel IP: {ip_text}")
         else:
             lines.append(f"    Tunnel IP: {ip_text}")
             
     if status["vpn"].get("external_ip"):
         exit_text = fmt_spoiler_code(status['vpn']['external_ip'])
-        if telegram_format:
+        if telegram_format or html_format:
             lines.append(f"  • VPN Exit IP: {exit_text}")
         else:
             lines.append(f"    VPN Exit IP: {exit_text}")
 
     # Hotspot Section
-    if telegram_format:
+    if telegram_format or html_format:
         lines.append("")
-        lines.append("*📶 HOTSPOT:*")
+        lines.append(fmt_bold("📶 HOTSPOT:"))
     else:
         lines.append(f"\n{Colors.BOLD}HOTSPOT:{Colors.RESET}")
         
     icon = "✅" if status["hotspot"]["broadcasting"] else "❌"
     ssid = get_hotspot_ssid()
-    if telegram_format:
-        lines.append(f"{icon} SSID: `{ssid}`")
-        lines.append(f"  • Clients: `{status['hotspot']['clients']}`")
+    if telegram_format or html_format:
+        lines.append(f"{icon} SSID: {fmt_code(ssid)}")
+        lines.append(f"  • Clients: {fmt_code(str(status['hotspot']['clients']))}")
     else:
         lines.append(f"  {icon} SSID: {ssid}")
         lines.append(f"    Clients: {status['hotspot']['clients']}")
 
     # Network Section
-    if telegram_format:
+    if telegram_format or html_format:
         lines.append("")
-        lines.append("*🌐 NETWORK:*")
+        lines.append(fmt_bold("🌐 NETWORK:"))
     else:
         lines.append(f"\n{Colors.BOLD}NETWORK:{Colors.RESET}")
         
     dns_icon = "✅" if status["dns_working"] else "❌"
     dns_state = "Working" if status["dns_working"] else "Failed"
-    if telegram_format:
-        lines.append(f"{dns_icon} DNS: `{dns_state}`")
+    if telegram_format or html_format:
+        lines.append(f"{dns_icon} DNS: {fmt_code(dns_state)}")
     else:
         lines.append(f"  {dns_icon} DNS: {'Working' if status['dns_working'] else 'Failed'}")
 
     internet_icon = "✅" if status["internet"] else "❌"
     internet_state = "Available" if status["internet"] else "Down"
-    if telegram_format:
-        lines.append(f"{internet_icon} Internet: `{internet_state}`")
+    if telegram_format or html_format:
+        lines.append(f"{internet_icon} Internet: {fmt_code(internet_state)}")
     else:
         lines.append(f"  {internet_icon} Internet: {internet_state}")
 
@@ -376,22 +386,22 @@ def print_status(status: HotspotStatus, telegram_format: bool = False) -> None:
     ping_summary = ping.get("summary", "No ping result")
     
     # Format ping summary as code inside spoiler for Telegram
-    if telegram_format:
+    if telegram_format or html_format:
         ping_display = fmt_spoiler_code(ping_summary)
-        lines.append(f"{ping_icon} Ping `{ping_target}`: {ping_display}")
+        lines.append(f"{ping_icon} Ping {fmt_code(ping_target)}: {ping_display}")
     else:
         ping_display = ping_summary
         lines.append(f"  {ping_icon} Ping {ping_target}: {ping_display}")
     
     if ping.get("avg_ms") and ping.get("avg_ms") != "?":
         rtt_loss = f"RTT avg: {ping['avg_ms']} ms | Loss: {ping.get('loss', '?')}%"
-        if telegram_format:
+        if telegram_format or html_format:
             rtt_loss = fmt_code(rtt_loss)
             lines.append(f"  └─ {rtt_loss}")
         else:
             lines.append(f"    {rtt_loss}")
 
-    if not telegram_format:
+    if not telegram_format and not html_format:
         lines.append("=" * 55 + "\n")
     else:
         lines.append("")
@@ -409,6 +419,7 @@ def main() -> None:
     parser.add_argument("-f", "--fix", action="store_true")
     parser.add_argument("--clients", action="store_true")
     parser.add_argument("--telegram", action="store_true", help="Output formatted for Telegram (spoilers/code)")
+    parser.add_argument("--html", action="store_true", help="Output formatted as HTML for Telegram")
 
     args = parser.parse_args()
 
@@ -416,7 +427,7 @@ def main() -> None:
         args.status = True
 
     if args.status:
-        print_status(get_status(), telegram_format=args.telegram)
+        print_status(get_status(), telegram_format=args.telegram, html_format=args.html)
 
     if args.clients:
         print(f"Clients: {check_clients()}")
