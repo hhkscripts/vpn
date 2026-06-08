@@ -13,12 +13,20 @@ jobs:
     runs-on: self-hosted
     environment: production
     steps:
-      - name: Checkout code
+      - name: Checkout code to workspace
         uses: actions/checkout@v4
+        with:
+          # For self-hosted runners, ensure we're in the correct directory
+          path: '.'
+          # Fetch all history to ensure proper state
+          fetch-depth: 0
 
-      - name: Pull latest changes (Self-hosted specific)
+      - name: Ensure clean git state
         run: |
-          git pull origin main
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git reset --hard origin/main
+          git clean -fd
 
       - name: Create .env file from Secrets
         run: |
