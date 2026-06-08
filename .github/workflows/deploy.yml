@@ -16,6 +16,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Pull latest changes (Self-hosted specific)
+        run: |
+          git pull origin main
+
       - name: Create .env file from Secrets
         run: |
           cd telegrambot
@@ -32,11 +36,8 @@ jobs:
       - name: Build and Run with Docker Compose
         run: |
           cd telegrambot
-          # Stop existing container if running
           docker compose down || true
-          # Build and start new container
           docker compose up -d --build
-          # Show logs to confirm startup
           docker compose logs -f &
           sleep 5
           docker compose ps
