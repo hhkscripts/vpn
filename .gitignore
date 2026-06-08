@@ -5,59 +5,34 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
-env/
 venv/
 .venv/
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.log
-*.pot
-*.pyc
-*.pyo
-*.pyd
-*.so
-*.egg-info/
-.eggs/
-.pytest_cache/
-.mypy_cache/
-.hypothesis/
-
-# Environment
 .env
 .env.local
 .env.*
-!.env.example
 
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-Thumbs.db:encryptable
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+*.swo
+
+# Coverage
+.coverage
+coverage/
+htmlcov/
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
 
-# Build and distribution artifacts
-dist/
-build/
-*.egg
-*.egg-info/
-.sconsign.dblite
-._build/
-itk-wasm/
+# OS
+.DS_Store
+Thumbs.db
 ```
+
+Wait, let me reconsider. The only modified file is `scripts/hotspot-manager.py` which appears to be a Python source file. There are no build artifacts, dependency directories, or temporary files in the change list that would require adding to .gitignore.
+
+(empty)

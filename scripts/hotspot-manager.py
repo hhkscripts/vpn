@@ -295,12 +295,12 @@ def print_status(status: HotspotStatus, telegram_format: bool = False) -> str:
         lines.append(f"{icon} Connected: <code>{vpn_connected}</code>")
         if vpn_connected:
             if status["vpn"].get("ip"):
-                lines.append(
-                    f"• Tunnel IP: <tg-spoiler><code>{status['vpn']['ip']}</code></tg-spoiler>"
-                )
+                ip = status["vpn"]["ip"]
+                lines.append(f"• Tunnel IP: <tg-spoiler><code>{ip}</code></tg-spoiler>")
             if status["vpn"].get("external_ip"):
+                ext_ip = status["vpn"]["external_ip"]
                 lines.append(
-                    f"• VPN Exit IP: <tg-spoiler><code>{status['vpn']['external_ip']}</code></tg-spoiler>"
+                    f"• VPN Exit IP: <tg-spoiler><code>{ext_ip}</code></tg-spoiler>"
                 )
         lines.append("")
 
@@ -320,11 +320,11 @@ def print_status(status: HotspotStatus, telegram_format: bool = False) -> str:
         ping = status.get("ping", {})
         ping_result = ping.get("summary") if ping else None
 
+        dns_status = "Working" if dns_ok else "Failed"
+        lines.append(f"{'✅' if dns_ok else '❌'} DNS: <code>{dns_status}</code>")
+        net_status = "Available" if internet_ok else "Down"
         lines.append(
-            f"{'✅' if dns_ok else '❌'} DNS: <code>{'Working' if dns_ok else 'Failed'}</code>"
-        )
-        lines.append(
-            f"{'✅' if internet_ok else '❌'} Internet: <code>{'Available' if internet_ok else 'Down'}</code>"
+            f"{'✅' if internet_ok else '❌'} Internet: <code>{net_status}</code>"
         )
 
         ping_target = (
@@ -333,8 +333,10 @@ def print_status(status: HotspotStatus, telegram_format: bool = False) -> str:
 
         if ping_result and ping_result != "No ping result":
             safe_ping = html.escape(ping_result)
+            ping_icon = "✅" if internet_ok else "❌"
             lines.append(
-                f"{'✅' if internet_ok else '❌'} Ping <code>{ping_target}</code>: <tg-spoiler><code>{safe_ping}</code></tg-spoiler>"
+                f"{ping_icon} Ping <code>{ping_target}</code>: "
+                f"<tg-spoiler><code>{safe_ping}</code></tg-spoiler>"
             )
             # Extract RTT if available
             if ping.get("avg_ms") and ping.get("avg_ms") != "?":
@@ -343,8 +345,10 @@ def print_status(status: HotspotStatus, telegram_format: bool = False) -> str:
                     f"  └─ <code>RTT avg: {ping['avg_ms']} ms | Loss: {loss}%</code>"
                 )
         else:
+            ping_icon = "✅" if internet_ok else "❌"
             lines.append(
-                f"{'✅' if internet_ok else '❌'} Ping <code>{ping_target}</code>: <tg-spoiler><code>No ping result</code></tg-spoiler>"
+                f"{ping_icon} Ping <code>{ping_target}</code>: "
+                f"<tg-spoiler><code>No ping result</code></tg-spoiler>"
             )
 
         return "\n".join(lines)
