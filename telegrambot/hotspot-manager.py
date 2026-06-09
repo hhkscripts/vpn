@@ -65,13 +65,13 @@ CONFIG: Config = {
 }
 
 CUSTOM_EMOJIS = {
-    "signal": '<tg-emoji emoji-id="6127157759872868272"> </tg-emoji>',      # 📡 အစား
-    "tools": '<tg-emoji emoji-id="6141134446742478627"> </tg-emoji>',       # 🔧 အစား
-    "check": '<tg-emoji emoji-id="6114156013399579882"> </tg-emoji>',       # ✅ အစား
-    "lock": '<tg-emoji emoji-id="6059947491695008618"> </tg-emoji>',        # 🔒 အစား
-    "stats": '<tg-emoji emoji-id="6143449494244563627"> </tg-emoji>',       # 📶 အစား (📊)
-    "globe": '<tg-emoji emoji-id="6057443049020071219"> </tg-emoji>',       # 🌐 အစား
-    "cross": '<tg-emoji emoji-id="6111658378247806635"> </tg-emoji>'        # ❌ အစား
+    "signal": '<tg-emoji emoji-id="6127157759872868272">📡</tg-emoji>',      # 📡 အစား
+    "tools": '<tg-emoji emoji-id="6141134446742478627">🔧</tg-emoji>',       # 🔧 အစား
+    "check": '<tg-emoji emoji-id="6114156013399579882">✅</tg-emoji>',       # ✅ အစား
+    "lock": '<tg-emoji emoji-id="6059947491695008618">🔒</tg-emoji>',        # 🔒 အစား
+    "stats": '<tg-emoji emoji-id="6143449494244563627">📶</tg-emoji>',       # 📶 အစား (📊)
+    "globe": '<tg-emoji emoji-id="6057443049020071219">🌐</tg-emoji>',       # 🌐 အစား
+    "cross": '<tg-emoji emoji-id="6111658378247806635">❌</tg-emoji>'        # ❌ အစား
 }
 
 # အဆင်ပြေအောင် Short variable names ထပ်သတ်မှတ်နိုင်ပါတယ် (Optional)
