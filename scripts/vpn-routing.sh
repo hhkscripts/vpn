@@ -107,6 +107,7 @@ apply_policy() {
         ip route add default via "$LAN_GW" dev "$LAN_IF" metric 100 2>/dev/null || \
             ip route replace default via "$LAN_GW" dev "$LAN_IF" metric 100 2>/dev/null || true
     fi
+    ip route replace "$HOTSPOT_SUBNET" dev wlan0 table "$TABLE_ID" 2>/dev/null || true
     ip route replace default dev "$VPN_IF" table "$TABLE_ID" 2>/dev/null || true
 
     ip rule del from "$HOTSPOT_SUBNET" table "$TABLE_ID" priority "$RULE_PRIORITY" 2>/dev/null || true
