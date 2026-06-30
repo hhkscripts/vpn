@@ -44,7 +44,7 @@ jobs:
       - name: Build and Run with Docker Compose
         run: |
           cd telegrambot
-          docker compose down || true
+          docker compose down --remove-orphans || true
           docker compose up -d --build
           docker compose logs --tail=80
           sleep 5

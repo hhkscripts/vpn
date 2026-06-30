@@ -23,7 +23,6 @@ services:
       - ./bot.py:/app/bot.py:ro
       - /etc/hostapd:/etc/hostapd
       - /etc/dnsmasq.d:/etc/dnsmasq.d
-      - /etc/dnsmasq.conf:/etc/dnsmasq.conf
       - /run/xtables.lock:/run/xtables.lock
       - /lib/modules:/lib/modules:ro
     cap_add:
