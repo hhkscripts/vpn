@@ -1,26 +1,88 @@
-# Telegram Bot for Hotspot Manager
+# Telegram Bot For GoodWifi
 
-This bot allows you to control your Raspberry Pi Hotspot via Telegram.
+This optional bot controls the Raspberry Pi GoodWifi hotspot through Telegram. It runs in Docker and calls the same host manager used by the CLI:
 
-Service name: `mpxhotspotbot`
+```text
+/usr/local/bin/hotspot-manager.py
+```
 
-## Quick Start
+Service/container name:
 
-1. Copy `.env.example` to `.env` and add your bot token.
-2. Run with Docker: `docker-compose up -d --build`
+```text
+mpxhotspotbot
+```
 
-## Bot Health
+## Setup
 
-The Telegram bot process exposes a bot-only health endpoint:
+Create a Telegram bot with `@BotFather`, then configure the bot container:
+
+```bash
+cd telegrambot
+cp .env.example .env
+nano .env
+```
+
+Required:
+
+```text
+TELEGRAM_BOT_TOKEN=<bot-token>
+```
+
+Optional:
+
+```text
+TELEGRAM_ALLOWED_USERS=<telegram-user-id>
+BOT_HEALTH_HOST=0.0.0.0
+BOT_HEALTH_PORT=8081
+```
+
+Start or update the bot:
+
+```bash
+docker compose up -d --build
+```
+
+## Commands
+
+| Command | Description |
+| --- | --- |
+| `/start` | Start the bot |
+| `/status` | Show hotspot status |
+| `/restart` | Restart hotspot services and reapply routing |
+| `/restart_vpn` | Restart VPN and refresh GitHub routes |
+| `/fix` | Run the manager's automatic fix path |
+| `/clients` | Show connected client count |
+| `/help` | Show command help |
+
+## Health Endpoint
+
+The bot exposes a health endpoint for the central Cloudflare tunnel:
 
 ```text
 https://mpxhotspotbot.hhk.my.id/bot-health
 ```
 
-For the central Cloudflare tunnel, configure the Dashboard service URL as:
+Cloudflare should point to:
 
 ```text
 http://mpxhotspotbot:8081
 ```
 
-For full documentation, commands, and setup details, please refer to the [Main README](../README.md).
+The central `cloudflared` container is managed outside this project. Do not run a separate `cloudflared` process from this directory.
+
+## Troubleshooting
+
+Check container state and logs:
+
+```bash
+docker compose ps
+docker compose logs -f
+```
+
+Check the host manager directly:
+
+```bash
+sudo /usr/local/bin/hotspot-manager.py --status
+```
+
+If Telegram replies but the hotspot action fails, fix the host-side GoodWifi setup first from the main [README](../README.md).

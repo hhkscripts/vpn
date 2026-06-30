@@ -1,54 +1,69 @@
 # Raspberry Pi VPN Hotspot
 
-GoodWifi is a Raspberry Pi Wi-Fi hotspot that routes connected device traffic through an OpenVPN tunnel. The Pi host itself, Docker, and local server processes keep using normal Ethernet unless you explicitly route them through the VPN.
+GoodWifi is a Raspberry Pi Wi-Fi hotspot that sends connected client traffic through an OpenVPN tunnel while keeping the Pi host, Docker workloads, and local services on the normal Ethernet route.
 
-## Current Design
+## Routing Design
 
 Traffic is intentionally split:
 
-- GoodWifi clients: `10.42.0.0/24 -> tun0 -> VPN/VPS`
-- Pi host services: `eth0 -> <LAN gateway> -> ISP router`
-- GitHub host traffic: GitHub published IPv4 ranges can be marked into table 100 and sent through `tun0` when the ISP blocks GitHub
-- Docker workloads: not forced through VPN by default
+- GoodWifi clients: `10.42.0.0/24 -> wlan0 -> tun0 -> VPN/VPS`
+- Pi host traffic: `eth0 -> <LAN gateway> -> ISP router`
+- Docker workloads: normal host/Docker routes, not forced through the hotspot VPN
+- GitHub host traffic: selected GitHub IPv4 ranges can be marked into the VPN when the ISP blocks GitHub
+- Binance client traffic: Binance DNS answers are placed in `local_bypass_domains` and routed through `eth0`, so Binance P2P sees the normal Myanmar ISP public IP instead of the VPN exit IP
 - DNS for GoodWifi clients: `10.42.0.1:53` handled by Pi-hole
-- DHCP for GoodWifi clients: handled by dnsmasq on `wlan0`, advertising Pi-hole as the resolver
+- DHCP for GoodWifi clients: `dnsmasq` on `wlan0`, assigning `10.42.0.10` to `10.42.0.100`
 
-Do not install scripts that run:
+## Do Not Force The Host Default Route
+
+Do not install dispatcher scripts or manual fixes that run:
 
 ```bash
 ip route del default
 ip route add default dev tun0
 ```
 
-That makes the Pi itself use the VPN and can break Docker networking, DNS, SSH, and deployments.
+Those commands replace the Pi's main default route with the VPN tunnel. That is the wrong model for this project.
+
+The Pi must keep its main route on `eth0` so SSH, Docker, Pi-hole, GitHub deployment tooling, and local management keep working. GoodWifi clients are routed through the VPN with policy routing instead:
+
+```text
+from 10.42.0.0/24 lookup table 100
+table 100 default dev tun0
+```
+
+On systems with a route-table name configured, table `100` may display as `github_vpn` in `ip rule show`.
+
+Targeted exceptions then use marks and ipsets:
+
+- `github_vpn_routes` + mark `100`: send selected Pi host GitHub traffic through `tun0`
+- `local_bypass_domains` + mark `101`: send selected hotspot client destinations, currently Binance, through `eth0`
+
+If an old script forces the main default route to `tun0`, the Pi may lose stable DNS, Docker networking, SSH reachability, and deployment access.
 
 ## Components
 
-- `hostapd`: broadcasts `GoodWifi` on `wlan0`
-- `dnsmasq`: DHCP-only for clients, gives IPs from `10.42.0.10` to `10.42.0.100`, and advertises `10.42.0.1` as DNS
-- `Pi-hole`: DNS and ad blocking for GoodWifi clients on `10.42.0.1:53`
-- `NetworkManager`: manages Ethernet and OpenVPN connection `pi`
-- `configs/90-hotspot-vpn-policy`: keeps host traffic on `eth0` and routes hotspot clients through `tun0` using project-owned firewall chains
-- `scripts/vpn-routing.sh`: editable mirror of the installed dispatcher policy
-- `scripts/github-vpn-routes.sh`: fetches GitHub IP ranges through `tun0` and loads them into the project-owned `github_vpn_routes` ipset
-- `scripts/hotspot-manager.py`: status/fix CLI used by aliases and Telegram Bot
-- `telegrambot/`: Telegram Bot for remote hotspot control via Docker
+- `hostapd`: broadcasts the Wi-Fi AP on `wlan0`
+- `dnsmasq`: DHCP only; advertises Pi-hole as DNS
+- `Pi-hole`: DNS and ipset population for GoodWifi clients
+- `NetworkManager`: manages Ethernet and the OpenVPN connection named `pi`
+- `configs/90-hotspot-vpn-policy`: installed dispatcher policy
+- `scripts/vpn-routing.sh`: editable mirror of the dispatcher policy
+- `scripts/github-vpn-routes.sh`: loads GitHub IPv4 ranges into `github_vpn_routes`
+- `scripts/hotspot-manager.py`: status, restart, and fix CLI
+- `telegrambot/`: optional Telegram remote control
 
 ## Prerequisites
 
-- Raspberry Pi with Wi-Fi AP support on `wlan0`
+- Raspberry Pi with AP-capable Wi-Fi on `wlan0`
 - Raspberry Pi OS Bookworm or Bullseye
 - Ethernet upstream on `eth0`
-- A NetworkManager-compatible OpenVPN `.ovpn` client file
-- Internet access during first install so `apt` can install packages
-
-`setup.sh` installs the required hotspot packages: `hostapd`, `dnsmasq`, `ipset`, `ipset-persistent`, `iptables-persistent`, `netfilter-persistent`, `python3`, `python3-pip`, `curl`, and `wget`.
-
-Pi-hole runs from `pihole/docker-compose.yml`, so Docker Compose must be available before starting Pi-hole.
+- NetworkManager OpenVPN profile
+- Docker Compose for Pi-hole and the optional Telegram bot
 
 ## Quick Start
 
-From a fresh Pi:
+Install base packages and import the OpenVPN profile:
 
 ```bash
 sudo apt update
@@ -59,158 +74,14 @@ sudo nmcli connection import type openvpn file /path/to/client.ovpn
 sudo nmcli connection modify "<imported-name>" connection.id pi
 sudo nmcli connection modify pi connection.autoconnect yes ipv4.never-default yes ipv6.never-default yes
 sudo nmcli connection up pi
-chmod +x setup.sh uninstall.sh scripts/hotspot-manager.py scripts/github-vpn-routes.sh
-./setup.sh
-cd pihole
-cp .env.example .env
-nano .env
-docker compose up -d
-cd ..
 ```
 
-For an existing checkout, update the repository before running setup commands:
+Install and apply GoodWifi:
 
 ```bash
-cd ~/Projects/vpn
-git pull --ff-only
 chmod +x setup.sh uninstall.sh scripts/hotspot-manager.py scripts/github-vpn-routes.sh
 ./setup.sh
 ```
-
-If `chmod` says `scripts/github-vpn-routes.sh` does not exist, the local checkout is older than the current setup instructions. Run `git pull --ff-only` first, then rerun the `chmod` command.
-
-During setup, enter a hotspot SSID and password when prompted. Leaving the prompts blank keeps the currently installed values from `/etc/hostapd/hostapd.conf`, or the template values from `configs/hostapd.conf` on a first install. For unattended installs, set `HOTSPOT_SSID` and `HOTSPOT_PASSWORD` before running `./setup.sh`.
-
-## Important Files
-
-```text
-vpn/
-├── README.md
-├── setup.sh
-├── configs/
-│   ├── hostapd.conf
-│   ├── hostapd-override.conf
-│   ├── dnsmasq.conf
-│   ├── NetworkManager.conf
-│   ├── dhcpcd.conf
-│   ├── 20-hotspot-manager
-│   └── 90-hotspot-vpn-policy
-├── scripts/
-│   ├── github-vpn-routes.sh
-│   ├── hotspot-manager.py
-│   └── vpn-routing.sh
-├── telegrambot/
-│   ├── bot.py
-│   ├── Dockerfile
-│   ├── docker-compose.yml
-│   ├── requirements.txt
-│   ├── .env.example
-│   └── README.md
-└── pihole/
-    ├── docker-compose.yml
-    ├── .env.example
-    └── etc-dnsmasq.d/
-        └── 99-goodwifi-ipset.conf
-```
-
-Installed live files:
-
-```text
-/etc/hostapd/hostapd.conf
-/etc/systemd/system/hostapd.service.d/override.conf
-/etc/dnsmasq.conf
-/etc/NetworkManager/dispatcher.d/20-hotspot-manager
-/etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy
-/usr/local/bin/hotspot-manager.py
-/usr/local/bin/github-vpn-routes.sh
-```
-
-## OpenVPN Setup
-
-The hotspot expects a NetworkManager OpenVPN connection named `pi`. It should create interface `tun0` when connected.
-
-If you have an `.ovpn` file, import it on the Pi:
-
-```bash
-sudo nmcli connection import type openvpn file /path/to/client.ovpn
-```
-
-Rename the imported connection to `pi` if needed:
-
-```bash
-nmcli connection show
-sudo nmcli connection modify "<imported-name>" connection.id pi
-```
-
-Enable autoconnect:
-
-```bash
-sudo nmcli connection modify pi connection.autoconnect yes
-```
-
-Keep the VPN from becoming the Pi host default route:
-
-```bash
-sudo nmcli connection modify pi ipv4.never-default yes ipv6.never-default yes
-```
-
-Connect it if it is not already active:
-
-```bash
-sudo nmcli connection up pi
-```
-
-Verify:
-
-```bash
-nmcli -t -f NAME,TYPE,DEVICE,STATE connection show --active
-ip addr show tun0
-curl -4 -s --max-time 8 --interface tun0 https://ifconfig.me
-```
-
-The public VPN exit IP can vary by provider, account, or server pool. Treat the `curl --interface tun0` result as the current active exit IP, not as a value that must match this README.
-
-Apply the hotspot routing policy after `tun0` has an IPv4 address:
-
-```bash
-sudo /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy tun0 up
-```
-
-Private OpenVPN files must not be committed. This repo ignores `backup/`, `*.ovpn`, `*.key`, `*.pem`, and `*.crt`.
-
-## Changing Wi-Fi Name And Password
-
-Template values:
-
-- SSID: `GoodWifi`
-- Password: `ChangeMeDuringSetup`
-
-For normal installs, run setup and enter new values when prompted:
-
-```bash
-./setup.sh
-```
-
-For unattended installs:
-
-```bash
-HOTSPOT_SSID="MyWifi" HOTSPOT_PASSWORD="change-this-password" ./setup.sh
-```
-
-`setup.sh` renders the installed `/etc/hostapd/hostapd.conf` with your chosen values. The repository config stays as a reusable template.
-
-
-For a live-only quick test, edit `/etc/hostapd/hostapd.conf` and restart:
-
-```bash
-sudo systemctl restart hostapd dnsmasq
-```
-
-Source files are preferred so the next setup run preserves your changes.
-
-## Pi-hole DNS
-
-GoodWifi clients receive `10.42.0.1` as their DNS server from DHCP. `dnsmasq` is intentionally DHCP-only (`port=0`), so Pi-hole must be running on the host network and listening on `10.42.0.1:53`.
 
 Start Pi-hole:
 
@@ -219,26 +90,43 @@ cd pihole
 cp .env.example .env
 nano .env
 docker compose up -d
+cd ..
 ```
 
-Open the admin UI from a device that can reach the Pi:
-
-```text
-http://10.42.0.1/admin
-```
-
-The Pi-hole config persists in `pihole/etc-pihole/`. The custom dnsmasq rule in `pihole/etc-dnsmasq.d/99-goodwifi-ipset.conf` preserves this project's `vpn_domains` ipset behavior for selected domains resolved through Pi-hole.
-
-Verify DNS through Pi-hole:
+For an existing checkout after pulling source changes:
 
 ```bash
-nslookup google.com 10.42.0.1
-docker logs --tail=80 pihole
+cd ~/Projects/vpn
+git pull --ff-only
+./setup.sh
+cd pihole
+docker compose restart
+cd ..
+sudo /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy tun0 apply
 ```
 
-## Aliases
+## Wi-Fi Name And Password
 
-These are in `~/.bashrc`:
+Default template values:
+
+- SSID: `GoodWifi`
+- Password: `ChangeMeDuringSetup`
+
+Run setup and enter new values when prompted:
+
+```bash
+./setup.sh
+```
+
+For unattended setup:
+
+```bash
+HOTSPOT_SSID="MyWifi" HOTSPOT_PASSWORD="change-this-password" ./setup.sh
+```
+
+## Daily Commands
+
+Aliases installed by `setup.sh`:
 
 ```bash
 alias hotspot="sudo /usr/local/bin/hotspot-manager.py"
@@ -246,227 +134,50 @@ alias hs="sudo /usr/local/bin/hotspot-manager.py --status"
 alias hf="sudo /usr/local/bin/hotspot-manager.py --fix"
 ```
 
-Reload aliases after changing `.bashrc`:
-
-```bash
-source ~/.bashrc
-```
-
-## Daily Commands
-
-Check status:
+Common operations:
 
 ```bash
 hotspot --status
-hs
-```
-
-Expected healthy output includes:
-
-```text
-SERVICES:
-  ✅ hostapd      Running
-  ✅ dnsmasq      Running
-
-VPN:
-  ✅ Connected: True
-    Tunnel IP: 10.8.0.2
-    VPN Exit IP: <public VPN IP>
-
-HOTSPOT:
-  ✅ SSID: GoodWifi
-    Clients: <number>
-
-NETWORK:
-  ✅ DNS: Working
-  ✅ Internet: Available
-  ✅ Ping 8.8.8.8: 3 packets transmitted, 3 received, 0% packet loss, time ...ms
-```
-
-The `NETWORK` section is a Pi host check. Client VPN routing is verified separately with the commands in "Routing Verification" below.
-
-Pi-hole should also be running:
-
-```bash
-docker ps --filter name=pihole
-```
-
-### Telegram Bot Control
-
-Control your hotspot remotely via Telegram Bot. The bot runs in Docker and uses the same `hotspot-manager.py` commands internally.
-
-Compose service/container name: `mpxhotspotbot`
-
-#### Setup Instructions
-
-1. **Get a Bot Token**:
-   - Open Telegram and search for `@BotFather`
-   - Send `/newbot` command and follow instructions
-   - Copy the API token provided
-
-2. **Configure Environment**:
-   ```bash
-   cd telegrambot
-   cp .env.example .env
-   nano .env
-   ```
-   Add your bot token:
-   ```
-   TELEGRAM_BOT_TOKEN=your_bot_token_here
-   TELEGRAM_ALLOWED_USERS=your_telegram_user_id (optional)
-   BOT_HEALTH_HOST=0.0.0.0
-   BOT_HEALTH_PORT=8081
-   ```
-
-3. **Run with Docker**:
-   ```bash
-   docker-compose up -d --build
-   ```
-
-4. **Verify**:
-   - Send `/start` to your bot in Telegram to test
-   - Check bot process health: `http://localhost:8081/bot-health`
-
-#### Bot Health Endpoint
-
-The Telegram bot worker exposes a bot-only health endpoint:
-
-```text
-https://mpxhotspotbot.hhk.my.id/bot-health
-```
-
-The central Cloudflare tunnel is managed outside this project. Do not run `cloudflared` from this bot project. The central `cloudflared` container must be able to reach the bot on the Docker/host network, with the Dashboard service URL set to:
-
-```text
-http://mpxhotspotbot:8081
-```
-
-#### Available Commands
-
-| Command | Description |
-|---------|-------------|
-| `/start` | Start the bot and see welcome message |
-| `/status` | Check hotspot status with refresh button (updates existing message) |
-| `/restart` | Restart all hotspot services |
-| `/restart_vpn` | Restart VPN connection only |
-| `/fix` | Auto-fix common hotspot issues |
-| `/clients` | Show connected clients count |
-| `/help` | Display help message |
-
-#### Features
-
-- **Message Updates**: Status messages update in-place instead of creating new messages
-- **User Authorization**: Optional whitelist via `TELEGRAM_ALLOWED_USERS`
-- **Docker Isolation**: Runs in isolated container for security
-- **Auto-Reconnect**: Automatically reconnects to Telegram if connection is lost
-
-#### GitHub Secrets Integration
-
-For automated deployments, store your bot token in GitHub Secrets:
-
-1. Go to **Repository Settings** → **Secrets and variables** → **Actions**
-2. Add new secrets:
-   - `TELEGRAM_BOT_TOKEN`: Your bot token from BotFather
-   - `TELEGRAM_ALLOWED_USERS`: (Optional) Your Telegram user ID
-
-3. Use in GitHub Actions workflow:
-   ```yaml
-   - name: Deploy Telegram Bot
-     run: |
-       cd telegrambot
-       echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" > .env
-       docker-compose up -d --build
-   ```
-
-#### Troubleshooting
-
-- Check logs: `docker-compose logs -f`
-- Verify token is correct in `.env`
-- Ensure Docker is running: `systemctl status docker`
-- Check bot status: Send `/status` command in Telegram
-
-Restart hotspot services and reapply routing policy:
-
-```bash
-hotspot -r
 hotspot --restart
-```
-
-Auto-fix common runtime issues:
-
-```bash
-hf
-hotspot --fix
-```
-
-Reconnect/apply VPN policy only:
-
-```bash
 hotspot --restart-vpn
-```
-
-This also refreshes GitHub host routes when `/usr/local/bin/github-vpn-routes.sh` is installed.
-
-Show connected client count:
-
-```bash
 hotspot --clients
+hf
 ```
 
-## Setup / Reinstall
+`hotspot --restart-vpn` also refreshes GitHub host routes when `/usr/local/bin/github-vpn-routes.sh` is installed.
 
-Use setup only when source config changed or after a fresh OS install. Do not use setup as the first fix for a temporary client issue.
+## Pi-hole DNS And Ipsets
 
-```bash
-cd /path/to/vpn
-git pull --ff-only
-chmod +x setup.sh uninstall.sh scripts/hotspot-manager.py scripts/github-vpn-routes.sh
-./setup.sh
-```
-
-`setup.sh` is an apply wrapper. It does not regenerate project files. It installs/copies the existing files from `configs/` and `scripts/`, sets aliases, enables forwarding, installs the status manager, disables old bad VPN route scripts, applies hotspot-only VPN routing, and restarts services.
-
-`uninstall.sh` removes the installed system files, aliases, and runtime firewall/policy-route rules. It does not delete this project directory or rewrite files in `configs/` or `scripts/`.
-
-## Docker Setup Notes
-
-Docker services on the Pi should normally keep using the host Ethernet route, not the GoodWifi VPN route.
-
-Recommended pattern for Docker apps that need stable DNS:
-
-```yaml
-services:
-  app:
-    image: your-image
-    dns:
-      - 1.1.1.1
-      - 8.8.8.8
-```
-
-Check Docker apps after hotspot changes:
-
-```bash
-docker ps
-docker compose ps
-```
-
-Confirm host routing still uses Ethernet:
-
-```bash
-ip route get 1.1.1.1
-```
-
-Expected:
+GoodWifi clients receive `10.42.0.1` as DNS. Pi-hole runs on the host network and loads dnsmasq ipset rules from:
 
 ```text
-1.1.1.1 via <LAN gateway> dev eth0
+pihole/etc-dnsmasq.d/99-goodwifi-ipset.conf
 ```
 
-## GitHub Host Routes Through VPN
+Current DNS-to-ipset mappings:
 
-Some ISPs block GitHub before the Pi host can fetch code, actions metadata, or release assets through the normal Ethernet route. This project keeps the Pi host default route on `eth0`, so GitHub is handled as a targeted exception instead of moving all host traffic to the VPN.
+- GitHub domains -> `vpn_domains`
+- Binance domains -> `local_bypass_domains`
 
-Recommended flow:
+Restart Pi-hole after changing that file:
+
+```bash
+cd ~/Projects/vpn/pihole
+docker compose restart
+```
+
+Verify DNS:
+
+```bash
+nslookup google.com 10.42.0.1
+docker logs --tail=80 pihole
+```
+
+## GitHub Through VPN
+
+Some ISPs block GitHub on the normal Ethernet path. This project keeps the Pi host default route on `eth0`, then handles GitHub as a targeted exception.
+
+Refresh GitHub routes:
 
 ```bash
 sudo nmcli connection up pi
@@ -474,11 +185,9 @@ sudo /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy tun0 up
 sudo github-vpn-routes.sh
 ```
 
-`github-vpn-routes.sh` fetches `https://api.github.com/meta` using `curl --interface tun0`, extracts GitHub's published IPv4 ranges, loads them into the `github_vpn_routes` ipset, and saves netfilter state. The dispatcher policy marks traffic matching that ipset with fwmark `100`; the policy rule then sends it to table `100`, whose default route is `tun0`.
+`github-vpn-routes.sh` fetches `https://api.github.com/meta` through `tun0`, extracts GitHub IPv4 ranges, loads them into `github_vpn_routes`, and saves netfilter state. The dispatcher marks matching host traffic with fwmark `100`, then sends it to table `100`, whose default route is `tun0`.
 
-This script is intentionally not a separate pile of per-CIDR `iptables -I OUTPUT` rules. It uses the same project-owned policy-routing path as the `vpn_domains` ipset populated by Pi-hole's dnsmasq engine.
-
-Verify the GitHub ipset:
+Verify:
 
 ```bash
 sudo ipset list github_vpn_routes
@@ -486,10 +195,51 @@ sudo iptables -t mangle -S OUTPUT | grep github_vpn_routes
 ip route get 140.82.112.4 mark 100
 ```
 
-Expected route for marked GitHub traffic:
+Expected:
 
 ```text
 140.82.112.4 dev tun0 table 100
+```
+
+## Binance Through Myanmar ISP
+
+Binance P2P can reject VPN exit IPs. GoodWifi keeps normal client traffic on the VPN but sends Binance destinations through the Pi's Ethernet route:
+
+```text
+GoodWifi client -> wlan0 -> eth0 -> Myanmar ISP
+```
+
+This depends on clients using Pi-hole DNS (`10.42.0.1`). Android Private DNS, browser DNS-over-HTTPS, another VPN app, or a proxy can bypass Pi-hole and prevent Binance IPs from entering `local_bypass_domains`.
+
+Verify:
+
+```bash
+nslookup www.binance.com 10.42.0.1
+sudo ipset list local_bypass_domains
+```
+
+Pick one IP from `local_bypass_domains`:
+
+```bash
+ip route get <binance-ip> from 10.42.0.83 iif wlan0 mark 101
+```
+
+Expected:
+
+```text
+<binance-ip> from 10.42.0.83 via <LAN gateway> dev eth0 mark 0x65
+```
+
+Normal non-Binance client traffic should still use the VPN:
+
+```bash
+ip route get 1.1.1.1 from 10.42.0.83 iif wlan0
+```
+
+Expected:
+
+```text
+1.1.1.1 from 10.42.0.83 dev tun0 table 100
 ```
 
 ## Routing Verification
@@ -506,9 +256,7 @@ Expected:
 1.1.1.1 via <LAN gateway> dev eth0
 ```
 
-The LAN gateway is detected dynamically from `eth0`. It may be `192.168.1.1`, `192.168.0.1`, or another gateway assigned by the upstream router. Set `LAN_GW=<gateway>` only when you need to override detection manually.
-
-Hotspot client traffic should use VPN table 100:
+GoodWifi client traffic should use VPN table 100:
 
 ```bash
 ip route get 1.1.1.1 from 10.42.0.83 iif wlan0
@@ -520,7 +268,23 @@ Expected:
 1.1.1.1 from 10.42.0.83 dev tun0 table 100
 ```
 
-NAT should only masquerade hotspot subnet to VPN:
+Policy rules:
+
+```bash
+ip rule show
+```
+
+Expected entries:
+
+```text
+998: from all fwmark 0x65 lookup main
+999: from all fwmark 0x64 lookup 100
+1000: from 10.42.0.0/24 lookup 100
+```
+
+If table `100` is named locally, the last two lines may show `lookup github_vpn`.
+
+NAT:
 
 ```bash
 sudo iptables -t nat -S POSTROUTING | grep -E 'tun0|eth0|10.42'
@@ -530,134 +294,63 @@ Expected:
 
 ```text
 -A POSTROUTING -s 10.42.0.0/24 -o tun0 -j MASQUERADE
+-A POSTROUTING -s 10.42.0.0/24 -o eth0 -m set --match-set local_bypass_domains dst -j MASQUERADE
 ```
 
-Forward rules should jump through the project-owned chain:
+Forward rules:
 
 ```bash
-sudo iptables -S FORWARD
 sudo iptables -S GOODWIFI_FORWARD
 ```
 
 Expected:
 
 ```text
--A FORWARD -j GOODWIFI_FORWARD
+-A GOODWIFI_FORWARD -s 10.42.0.0/24 -i wlan0 -o eth0 -m set --match-set local_bypass_domains dst -j ACCEPT
+-A GOODWIFI_FORWARD -d 10.42.0.0/24 -i eth0 -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT
 -A GOODWIFI_FORWARD -s 10.42.0.0/24 -i wlan0 -o tun0 -j ACCEPT
 -A GOODWIFI_FORWARD -d 10.42.0.0/24 -i tun0 -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT
 ```
 
-IPv6 forwarding from hotspot clients is blocked to prevent VPN leaks:
+IPv6 forwarding from GoodWifi is blocked to prevent VPN leaks:
 
 ```bash
-sudo ip6tables -S FORWARD
 sudo ip6tables -S GOODWIFI6_FORWARD
 ```
 
 Expected:
 
 ```text
--A FORWARD -j GOODWIFI6_FORWARD
 -A GOODWIFI6_FORWARD -i wlan0 -j DROP
 ```
 
-## Why Devices Show "Connected / No Internet Access"
+## Troubleshooting
 
-Phones and laptops do not simply check whether Wi-Fi is connected. They run a captive-portal or internet validation check after joining Wi-Fi.
-
-Examples:
-
-- Android checks URLs such as `connectivitycheck.gstatic.com/generate_204`
-- Google checks `www.google.com/generate_204`
-- Some devices also require DNS and Private DNS to work
-- Some devices cache a previous failed result until Wi-Fi is reconnected
-
-So this message can appear even while the Pi status looks healthy.
-
-Common causes:
-
-1. Device has stale DHCP/captive-portal state after hotspot restart.
-2. Device uses strict Private DNS and cannot reach its configured DNS-over-TLS provider.
-3. Device kept an old lease but route/NAT changed under it.
-4. VPN was briefly down while the device performed its internet check.
-5. Pi-hole is stopped or its upstream DNS temporarily failed.
-6. Client is listed in old DHCP leases but is not actually associated to `hostapd` anymore.
-7. AP compatibility settings are wrong for the device. Current `hostapd.conf` keeps WMM and 802.11n enabled for Android compatibility.
-
-## Fix Flow For "Connected / No Internet Access"
-
-Start with the safe runtime fix:
-
-```bash
-hotspot -r
-```
-
-Then on the affected device:
-
-1. Turn Wi-Fi off and on.
-2. Reconnect to `GoodWifi`.
-3. If still broken, Forget `GoodWifi` and join again.
-4. On Android, set Private DNS to `Automatic` or `Off`.
-5. Wait 10-20 seconds for the captive portal check to refresh.
-
-Do not run `./setup.sh` first. `setup.sh` rewrites config and is for install/config updates, not normal client reconnect problems.
-
-## Pi-Side Checks For Client Internet
-
-Check manager status:
+Check overall status:
 
 ```bash
 hotspot --status
 ```
 
-Check Android captive portal endpoint using hotspot source address:
+Restart runtime services and reapply policy:
 
 ```bash
-curl -4 -s -o /dev/null -w 'android204=%{http_code} time=%{time_total}\n' \
-  --interface 10.42.0.1 --max-time 8 \
-  http://connectivitycheck.gstatic.com/generate_204
+hotspot --restart
 ```
 
-Expected:
-
-```text
-android204=204
-```
-
-Check Google 204 endpoint:
+Reconnect only the VPN and refresh GitHub routes:
 
 ```bash
-curl -4 -s -o /dev/null -w 'google204=%{http_code} time=%{time_total}\n' \
-  --interface 10.42.0.1 --max-time 8 \
-  https://www.google.com/generate_204
+hotspot --restart-vpn
 ```
 
-Expected:
-
-```text
-google204=204
-```
-
-Check DNS through Pi-hole on the hotspot gateway:
+Run the manager's automatic fix path:
 
 ```bash
-nslookup connectivitycheck.gstatic.com 10.42.0.1
+hf
 ```
 
-Check VPN egress IP:
-
-```bash
-curl -4 -s --max-time 8 --interface tun0 https://ifconfig.me
-```
-
-This prints the current public VPN exit IP for the active tunnel. It can change when the OpenVPN profile, provider server, or account changes.
-
-```bash
-nmcli -t -f NAME,TYPE,DEVICE,STATE connection show --active
-ip -4 addr show tun0
-```
-
-Check active/reachable clients:
+Check connected clients:
 
 ```bash
 sudo hostapd_cli all_sta
@@ -666,48 +359,11 @@ sudo cat /var/lib/misc/dnsmasq.leases
 ip neigh show dev wlan0
 ```
 
-`hostapd_cli all_sta` and `iw station dump` show clients actually associated to the AP. `dnsmasq.leases` can contain stale lease records, so do not treat a lease entry by itself as proof that the device is connected. A neighbor entry with `REACHABLE` is currently visible. A neighbor entry with `FAILED` usually means stale lease or disconnected device.
+`dnsmasq.leases` can include stale leases; `hostapd_cli`, `iw`, and reachable neighbor entries are better proof that a client is currently attached.
 
-## GoodWifi Is Connected But One Device Has No Internet
+## Old Dispatcher Scripts
 
-If only one device has the issue, the Pi is usually OK. Fix the device:
-
-- Forget and reconnect `GoodWifi`
-- Disable strict Private DNS
-- Disable VPN/proxy apps on the device for testing
-- Toggle airplane mode
-- Reboot the device if it keeps cached "No internet" state
-
-## All Devices Have No Internet
-
-Run these in order:
-
-```bash
-hotspot --status
-hotspot -r
-hotspot --status
-```
-
-If still broken, verify route/NAT:
-
-```bash
-ip route get 1.1.1.1
-ip route get 1.1.1.1 from 10.42.0.83 iif wlan0
-sudo iptables -t nat -S POSTROUTING | grep -E 'tun0|eth0|10.42'
-sudo iptables -S FORWARD
-sudo iptables -S GOODWIFI_FORWARD
-```
-
-Only run setup after source config changed or if the installed files are damaged:
-
-```bash
-cd /path/to/vpn
-./setup.sh
-```
-
-## Old Bad Scripts
-
-These old dispatcher scripts must remain non-executable or removed because they force the Pi host default route through VPN:
+These old dispatcher scripts must stay non-executable or removed because they force the Pi host default route through the VPN:
 
 ```text
 /etc/NetworkManager/dispatcher.d/10-vpn-routing
@@ -725,33 +381,38 @@ ls -l /etc/NetworkManager/dispatcher.d/10-vpn-routing \
 
 Expected permission starts with `-rw-`, not `-rwx`.
 
-## Docker Compatibility
+`setup.sh` disables these scripts when they exist.
 
-Docker workloads must not be forced through the hotspot VPN unless you explicitly design them that way.
+## Important Files
 
-Expected default state:
-
-- Docker containers keep using the Pi host/bridge route.
-- Pi host traffic goes through `eth0`.
-- GoodWifi client traffic goes through `tun0`.
-- Docker apps that need stable resolver behavior can define `dns:` entries in their Compose files.
-
-Generic Docker check:
-
-```bash
-docker ps
-docker compose ps
-ip route get 1.1.1.1
+```text
+configs/90-hotspot-vpn-policy
+scripts/vpn-routing.sh
+scripts/github-vpn-routes.sh
+scripts/hotspot-manager.py
+pihole/docker-compose.yml
+pihole/etc-dnsmasq.d/99-goodwifi-ipset.conf
+telegrambot/README.md
 ```
 
-## Quick Decision Guide
+Installed live files:
 
-- One device says No internet, others work: reconnect/forget Wi-Fi on that device.
-- All devices say No internet, `hotspot --status` is healthy: run `hotspot -r`, then reconnect devices.
-- VPN shows disconnected: run `hotspot --restart-vpn`.
-- DNS failed: restart Pi-hole with `cd pihole && docker compose restart`, then run `hotspot -r`.
-- Route/NAT wrong: run `hf` or `hotspot --fix`.
-- Source config changed: run `cd /path/to/vpn && ./setup.sh`.
+```text
+/etc/hostapd/hostapd.conf
+/etc/dnsmasq.conf
+/etc/NetworkManager/dispatcher.d/20-hotspot-manager
+/etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy
+/usr/local/bin/hotspot-manager.py
+/usr/local/bin/github-vpn-routes.sh
+```
+
+## Uninstall
+
+```bash
+./uninstall.sh
+```
+
+`uninstall.sh` removes installed system files, aliases, and runtime firewall/policy-route rules. It does not delete this project directory.
 
 ## License
 
