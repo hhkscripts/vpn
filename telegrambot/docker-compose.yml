@@ -1,7 +1,7 @@
 services:
-  telegrambot:
+  mpxhotspotbot:
     build: .
-    container_name: telegrambot
+    container_name: mpxhotspotbot
     restart: unless-stopped
     network_mode: "host"
     privileged: true
@@ -12,6 +12,8 @@ services:
       - TZ=Asia/Yangon
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
+      - BOT_HEALTH_HOST=0.0.0.0
+      - BOT_HEALTH_PORT=8081
     volumes:
       - /:/host:rw
       - /var/run/dbus:/var/run/dbus
@@ -35,3 +37,9 @@ services:
         cd /host/home/hhk/Projects/vpn/telegrambot &&
         exec python3 bot.py
       "
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8081/bot-health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

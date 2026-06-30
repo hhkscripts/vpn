@@ -1,0 +1,8 @@
+{
+  "include": ["bot.py"],
+  "exclude": [".venv", "hotspot-manager.py"],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "standard"
+}

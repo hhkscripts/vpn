@@ -2,6 +2,9 @@ import os
 import sys
 import logging
 import subprocess
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import List
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
@@ -10,6 +13,9 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USERS = os.getenv("TELEGRAM_ALLOWED_USERS", "")
 ALLOWED_USER_IDS = [int(uid.strip()) for uid in ALLOWED_USERS.split(",") if uid.strip().isdigit()] if ALLOWED_USERS else []
+BOT_HEALTH_HOST = os.getenv("BOT_HEALTH_HOST", "0.0.0.0")
+BOT_HEALTH_PORT = int(os.getenv("BOT_HEALTH_PORT", "8081"))
+BOT_SERVICE_NAME = "mpxhotspotbot"
 
 # Get the directory where bot.py is located and construct the path to hotspot-manager.py
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -17,6 +23,42 @@ SCRIPT_PATH = os.path.join(SCRIPT_DIR, "hotspot-manager.py")
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+_bot_ready = threading.Event()
+
+
+class BotHealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path != "/bot-health":
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        is_ready = _bot_ready.is_set()
+        payload = {
+            "status": "ok" if is_ready else "down",
+            "component": "telegram-bot",
+            "service": BOT_SERVICE_NAME,
+        }
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+
+        self.send_response(200 if is_ready else 503)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:
+        logger.debug("Bot health request: " + format, *args)
+
+
+def start_bot_health_server() -> ThreadingHTTPServer:
+    server = ThreadingHTTPServer((BOT_HEALTH_HOST, BOT_HEALTH_PORT), BotHealthHandler)
+    thread = threading.Thread(target=server.serve_forever, name="bot-health-server", daemon=True)
+    thread.start()
+    logger.info("Bot health endpoint listening on %s:%s/bot-health", BOT_HEALTH_HOST, BOT_HEALTH_PORT)
+    return server
+
 
 def check_authorization(user_id: int) -> bool:
     if not ALLOWED_USER_IDS:
@@ -207,6 +249,7 @@ def main():
         logger.error("TELEGRAM_BOT_TOKEN not found in environment variables!")
         sys.exit(1)
 
+    health_server = start_bot_health_server()
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -224,7 +267,12 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
 
     logger.info("Bot is starting...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    _bot_ready.set()
+    try:
+        app.run_polling(allowed_updates=Update.ALL_TYPES)
+    finally:
+        _bot_ready.clear()
+        health_server.shutdown()
 
 if __name__ == "__main__":
     main()
