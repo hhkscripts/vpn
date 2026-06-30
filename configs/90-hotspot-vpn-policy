@@ -8,9 +8,12 @@ LAN_GW_OVERRIDE="${LAN_GW:-}"
 TABLE_ID="100"
 RULE_PRIORITY="1000"
 HOST_RULE_PRIORITY="999"
+BYPASS_RULE_PRIORITY="998"
 FWMARK="100"
+BYPASS_FWMARK="101"
 VPN_IPSET="vpn_domains"
 GITHUB_IPSET="github_vpn_routes"
+LOCAL_BYPASS_IPSET="local_bypass_domains"
 IPTABLES_CHAIN="GOODWIFI_FORWARD"
 IP6TABLES_CHAIN="GOODWIFI6_FORWARD"
 
@@ -90,6 +93,7 @@ apply_policy() {
     echo 1 > /proc/sys/net/ipv4/ip_forward
     ipset create "$VPN_IPSET" hash:ip 2>/dev/null || true
     ipset create "$GITHUB_IPSET" hash:net family inet 2>/dev/null || true
+    ipset create "$LOCAL_BYPASS_IPSET" hash:ip 2>/dev/null || true
     ensure_filter_chain "$IPTABLES_CHAIN"
     ensure_ip6_filter_chain "$IP6TABLES_CHAIN"
 
@@ -99,6 +103,9 @@ apply_policy() {
     remove_rule filter FORWARD -i "$VPN_IF" -o wlan0 -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
     remove_rule filter FORWARD -i wlan0 -o "$LAN_IF" -j ACCEPT
     remove_rule filter FORWARD -i "$LAN_IF" -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+    remove_rule nat POSTROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -o "$LAN_IF" -j MASQUERADE
+    remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j MARK --set-mark "$BYPASS_FWMARK"
+    remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j MARK --set-mark 0
     remove_ip6_rule FORWARD -i wlan0 -j DROP
 
     ip route del default dev "$VPN_IF" table main metric 100 2>/dev/null || \
@@ -114,13 +121,21 @@ apply_policy() {
     ip rule add from "$HOTSPOT_SUBNET" table "$TABLE_ID" priority "$RULE_PRIORITY" 2>/dev/null || true
     ip rule del fwmark "$FWMARK" table "$TABLE_ID" priority "$HOST_RULE_PRIORITY" 2>/dev/null || true
     ip rule add fwmark "$FWMARK" table "$TABLE_ID" priority "$HOST_RULE_PRIORITY" 2>/dev/null || true
+    ip rule del fwmark "$BYPASS_FWMARK" table main priority "$BYPASS_RULE_PRIORITY" 2>/dev/null || true
+    ip rule add fwmark "$BYPASS_FWMARK" table main priority "$BYPASS_RULE_PRIORITY" 2>/dev/null || true
 
     iptables -t nat -C POSTROUTING -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -j MASQUERADE 2>/dev/null || \
         iptables -t nat -A POSTROUTING -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -j MASQUERADE
+    iptables -t nat -C POSTROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -o "$LAN_IF" -j MASQUERADE 2>/dev/null || \
+        iptables -t nat -A POSTROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -o "$LAN_IF" -j MASQUERADE
+    iptables -t mangle -C PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j MARK --set-mark "$BYPASS_FWMARK" 2>/dev/null || \
+        iptables -t mangle -I PREROUTING 1 -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j MARK --set-mark "$BYPASS_FWMARK"
     iptables -t mangle -C OUTPUT -m set --match-set "$VPN_IPSET" dst -j MARK --set-mark "$FWMARK" 2>/dev/null || \
         iptables -t mangle -A OUTPUT -m set --match-set "$VPN_IPSET" dst -j MARK --set-mark "$FWMARK"
     iptables -t mangle -C OUTPUT -m set --match-set "$GITHUB_IPSET" dst -j MARK --set-mark "$FWMARK" 2>/dev/null || \
         iptables -t mangle -A OUTPUT -m set --match-set "$GITHUB_IPSET" dst -j MARK --set-mark "$FWMARK"
+    iptables -A "$IPTABLES_CHAIN" -i wlan0 -o "$LAN_IF" -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j ACCEPT
+    iptables -A "$IPTABLES_CHAIN" -i "$LAN_IF" -o wlan0 -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
     iptables -A "$IPTABLES_CHAIN" -i wlan0 -o "$VPN_IF" -s "$HOTSPOT_SUBNET" -j ACCEPT
     iptables -A "$IPTABLES_CHAIN" -i "$VPN_IF" -o wlan0 -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
     remove_rule mangle FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200
@@ -140,8 +155,11 @@ apply_policy() {
 
 cleanup_policy() {
     remove_rule nat POSTROUTING -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -j MASQUERADE
+    remove_rule nat POSTROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -o "$LAN_IF" -j MASQUERADE
     remove_rule mangle OUTPUT -m set --match-set "$VPN_IPSET" dst -j MARK --set-mark "$FWMARK"
     remove_rule mangle OUTPUT -m set --match-set "$GITHUB_IPSET" dst -j MARK --set-mark "$FWMARK"
+    remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j MARK --set-mark "$BYPASS_FWMARK"
+    remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j MARK --set-mark 0
     remove_rule mangle FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200
     remove_rule mangle FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
     remove_rule filter FORWARD -i wlan0 -o "$VPN_IF" -s "$HOTSPOT_SUBNET" -j ACCEPT
@@ -156,6 +174,7 @@ cleanup_policy() {
     remove_rule filter INPUT -i wlan0 -p udp --dport 53 -j ACCEPT
     ip rule del from "$HOTSPOT_SUBNET" table "$TABLE_ID" priority "$RULE_PRIORITY" 2>/dev/null || true
     ip rule del fwmark "$FWMARK" table "$TABLE_ID" priority "$HOST_RULE_PRIORITY" 2>/dev/null || true
+    ip rule del fwmark "$BYPASS_FWMARK" table main priority "$BYPASS_RULE_PRIORITY" 2>/dev/null || true
     ip route flush table "$TABLE_ID" 2>/dev/null || true
 }
 
