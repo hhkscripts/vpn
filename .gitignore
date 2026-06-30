@@ -37,6 +37,12 @@ telegrambot/venv/
 .env
 .env.local
 .env.*
+!.env.example
+
+# Runtime service state
+pihole/etc-pihole/
+pihole/etc-dnsmasq.d/*
+!pihole/etc-dnsmasq.d/99-goodwifi-ipset.conf
 
 # Editors
 .vscode/
