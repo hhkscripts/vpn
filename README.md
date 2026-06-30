@@ -8,9 +8,10 @@ Traffic is intentionally split:
 
 - GoodWifi clients: `10.42.0.0/24 -> tun0 -> VPN/VPS`
 - Pi host services: `eth0 -> <LAN gateway> -> ISP router`
+- GitHub host traffic: GitHub published IPv4 ranges can be marked into table 100 and sent through `tun0` when the ISP blocks GitHub
 - Docker workloads: not forced through VPN by default
-- DNS for GoodWifi clients: `10.42.0.1:53` handled by dnsmasq with upstream DNS to Google (8.8.8.8, 8.8.4.4)
-- DHCP for GoodWifi clients: handled by dnsmasq on `wlan0`
+- DNS for GoodWifi clients: `10.42.0.1:53` handled by Pi-hole
+- DHCP for GoodWifi clients: handled by dnsmasq on `wlan0`, advertising Pi-hole as the resolver
 
 Do not install scripts that run:
 
@@ -24,10 +25,12 @@ That makes the Pi itself use the VPN and can break Docker networking, DNS, SSH, 
 ## Components
 
 - `hostapd`: broadcasts `GoodWifi` on `wlan0`
-- `dnsmasq`: DHCP and DNS for clients, gives IPs from `10.42.0.10` to `10.42.0.100`, upstream DNS to Google (8.8.8.8, 8.8.4.4)
+- `dnsmasq`: DHCP-only for clients, gives IPs from `10.42.0.10` to `10.42.0.100`, and advertises `10.42.0.1` as DNS
+- `Pi-hole`: DNS and ad blocking for GoodWifi clients on `10.42.0.1:53`
 - `NetworkManager`: manages Ethernet and OpenVPN connection `pi`
 - `configs/90-hotspot-vpn-policy`: keeps host traffic on `eth0` and routes hotspot clients through `tun0` using project-owned firewall chains
 - `scripts/vpn-routing.sh`: editable mirror of the installed dispatcher policy
+- `scripts/github-vpn-routes.sh`: fetches GitHub IP ranges through `tun0` and loads them into the project-owned `github_vpn_routes` ipset
 - `scripts/hotspot-manager.py`: status/fix CLI used by aliases and Telegram Bot
 - `telegrambot/`: Telegram Bot for remote hotspot control via Docker
 
@@ -39,7 +42,9 @@ That makes the Pi itself use the VPN and can break Docker networking, DNS, SSH, 
 - A NetworkManager-compatible OpenVPN `.ovpn` client file
 - Internet access during first install so `apt` can install packages
 
-`setup.sh` installs the required packages: `hostapd`, `dnsmasq`, `ipset`, `ipset-persistent`, `iptables-persistent`, `netfilter-persistent`, `python3`, `python3-pip`, `curl`, and `wget`.
+`setup.sh` installs the required hotspot packages: `hostapd`, `dnsmasq`, `ipset`, `ipset-persistent`, `iptables-persistent`, `netfilter-persistent`, `python3`, `python3-pip`, `curl`, and `wget`.
+
+Pi-hole runs from `pihole/docker-compose.yml`, so Docker Compose must be available before starting Pi-hole.
 
 ## Quick Start
 
@@ -47,15 +52,20 @@ From a fresh Pi:
 
 ```bash
 sudo apt update
-sudo apt install -y git network-manager network-manager-openvpn
+sudo apt install -y git network-manager network-manager-openvpn docker.io docker-compose-plugin
 git clone <this-repo-url>
 cd vpn
 sudo nmcli connection import type openvpn file /path/to/client.ovpn
 sudo nmcli connection modify "<imported-name>" connection.id pi
 sudo nmcli connection modify pi connection.autoconnect yes ipv4.never-default yes ipv6.never-default yes
 sudo nmcli connection up pi
-chmod +x setup.sh uninstall.sh scripts/hotspot-manager.py
+chmod +x setup.sh uninstall.sh scripts/hotspot-manager.py scripts/github-vpn-routes.sh
 ./setup.sh
+cd pihole
+cp .env.example .env
+nano .env
+docker compose up -d
+cd ..
 ```
 
 During setup, enter a hotspot SSID and password when prompted. Leaving the prompts blank keeps the currently installed values from `/etc/hostapd/hostapd.conf`, or the template values from `configs/hostapd.conf` on a first install. For unattended installs, set `HOTSPOT_SSID` and `HOTSPOT_PASSWORD` before running `./setup.sh`.
@@ -75,15 +85,21 @@ vpn/
 │   ├── 20-hotspot-manager
 │   └── 90-hotspot-vpn-policy
 ├── scripts/
+│   ├── github-vpn-routes.sh
 │   ├── hotspot-manager.py
 │   └── vpn-routing.sh
-└── telegrambot/
-    ├── bot.py
-    ├── Dockerfile
+├── telegrambot/
+│   ├── bot.py
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   ├── requirements.txt
+│   ├── .env.example
+│   └── README.md
+└── pihole/
     ├── docker-compose.yml
-    ├── requirements.txt
     ├── .env.example
-    └── README.md
+    └── etc-dnsmasq.d/
+        └── 99-goodwifi-ipset.conf
 ```
 
 Installed live files:
@@ -95,6 +111,7 @@ Installed live files:
 /etc/NetworkManager/dispatcher.d/20-hotspot-manager
 /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy
 /usr/local/bin/hotspot-manager.py
+/usr/local/bin/github-vpn-routes.sh
 ```
 
 ## OpenVPN Setup
@@ -180,6 +197,34 @@ sudo systemctl restart hostapd dnsmasq
 
 Source files are preferred so the next setup run preserves your changes.
 
+## Pi-hole DNS
+
+GoodWifi clients receive `10.42.0.1` as their DNS server from DHCP. `dnsmasq` is intentionally DHCP-only (`port=0`), so Pi-hole must be running on the host network and listening on `10.42.0.1:53`.
+
+Start Pi-hole:
+
+```bash
+cd pihole
+cp .env.example .env
+nano .env
+docker compose up -d
+```
+
+Open the admin UI from a device that can reach the Pi:
+
+```text
+http://10.42.0.1/admin
+```
+
+The Pi-hole config persists in `pihole/etc-pihole/`. The custom dnsmasq rule in `pihole/etc-dnsmasq.d/99-goodwifi-ipset.conf` preserves this project's `vpn_domains` ipset behavior for selected domains resolved through Pi-hole.
+
+Verify DNS through Pi-hole:
+
+```bash
+nslookup google.com 10.42.0.1
+docker logs --tail=80 pihole
+```
+
 ## Aliases
 
 These are in `~/.bashrc`:
@@ -229,9 +274,17 @@ NETWORK:
 
 The `NETWORK` section is a Pi host check. Client VPN routing is verified separately with the commands in "Routing Verification" below.
 
+Pi-hole should also be running:
+
+```bash
+docker ps --filter name=pihole
+```
+
 ### Telegram Bot Control
 
 Control your hotspot remotely via Telegram Bot. The bot runs in Docker and uses the same `hotspot-manager.py` commands internally.
+
+Compose service/container name: `mpxhotspotbot`
 
 #### Setup Instructions
 
@@ -250,6 +303,8 @@ Control your hotspot remotely via Telegram Bot. The bot runs in Docker and uses 
    ```
    TELEGRAM_BOT_TOKEN=your_bot_token_here
    TELEGRAM_ALLOWED_USERS=your_telegram_user_id (optional)
+   BOT_HEALTH_HOST=0.0.0.0
+   BOT_HEALTH_PORT=8081
    ```
 
 3. **Run with Docker**:
@@ -259,6 +314,21 @@ Control your hotspot remotely via Telegram Bot. The bot runs in Docker and uses 
 
 4. **Verify**:
    - Send `/start` to your bot in Telegram to test
+   - Check bot process health: `http://localhost:8081/bot-health`
+
+#### Bot Health Endpoint
+
+The Telegram bot worker exposes a bot-only health endpoint:
+
+```text
+https://mpxhotspotbot.hhk.my.id/bot-health
+```
+
+The central Cloudflare tunnel is managed outside this project. Do not run `cloudflared` from this bot project. The central `cloudflared` container must be able to reach the bot on the Docker/host network, with the Dashboard service URL set to:
+
+```text
+http://mpxhotspotbot:8081
+```
 
 #### Available Commands
 
@@ -324,6 +394,8 @@ Reconnect/apply VPN policy only:
 hotspot --restart-vpn
 ```
 
+This also refreshes GitHub host routes when `/usr/local/bin/github-vpn-routes.sh` is installed.
+
 Show connected client count:
 
 ```bash
@@ -376,6 +448,36 @@ Expected:
 
 ```text
 1.1.1.1 via <LAN gateway> dev eth0
+```
+
+## GitHub Host Routes Through VPN
+
+Some ISPs block GitHub before the Pi host can fetch code, actions metadata, or release assets through the normal Ethernet route. This project keeps the Pi host default route on `eth0`, so GitHub is handled as a targeted exception instead of moving all host traffic to the VPN.
+
+Recommended flow:
+
+```bash
+sudo nmcli connection up pi
+sudo /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy tun0 up
+sudo github-vpn-routes.sh
+```
+
+`github-vpn-routes.sh` fetches `https://api.github.com/meta` using `curl --interface tun0`, extracts GitHub's published IPv4 ranges, loads them into the `github_vpn_routes` ipset, and saves netfilter state. The dispatcher policy marks traffic matching that ipset with fwmark `100`; the policy rule then sends it to table `100`, whose default route is `tun0`.
+
+This script is intentionally not a separate pile of per-CIDR `iptables -I OUTPUT` rules. It uses the same project-owned policy-routing path as the `vpn_domains` ipset populated by Pi-hole's dnsmasq engine.
+
+Verify the GitHub ipset:
+
+```bash
+sudo ipset list github_vpn_routes
+sudo iptables -t mangle -S OUTPUT | grep github_vpn_routes
+ip route get 140.82.112.4 mark 100
+```
+
+Expected route for marked GitHub traffic:
+
+```text
+140.82.112.4 dev tun0 table 100
 ```
 
 ## Routing Verification
@@ -466,7 +568,7 @@ Common causes:
 2. Device uses strict Private DNS and cannot reach its configured DNS-over-TLS provider.
 3. Device kept an old lease but route/NAT changed under it.
 4. VPN was briefly down while the device performed its internet check.
-5. dnsmasq upstream DNS temporarily failed.
+5. Pi-hole is stopped or its upstream DNS temporarily failed.
 6. Client is listed in old DHCP leases but is not actually associated to `hostapd` anymore.
 7. AP compatibility settings are wrong for the device. Current `hostapd.conf` keeps WMM and 802.11n enabled for Android compatibility.
 
@@ -524,7 +626,7 @@ Expected:
 google204=204
 ```
 
-Check DNS through dnsmasq on the hotspot gateway:
+Check DNS through Pi-hole on the hotspot gateway:
 
 ```bash
 nslookup connectivitycheck.gstatic.com 10.42.0.1
@@ -635,7 +737,7 @@ ip route get 1.1.1.1
 - One device says No internet, others work: reconnect/forget Wi-Fi on that device.
 - All devices say No internet, `hotspot --status` is healthy: run `hotspot -r`, then reconnect devices.
 - VPN shows disconnected: run `hotspot --restart-vpn`.
-- DNS failed: restart dnsmasq with `hotspot -r`.
+- DNS failed: restart Pi-hole with `cd pihole && docker compose restart`, then run `hotspot -r`.
 - Route/NAT wrong: run `hf` or `hotspot --fix`.
 - Source config changed: run `cd /path/to/vpn && ./setup.sh`.
 
