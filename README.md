@@ -68,6 +68,17 @@ docker compose up -d
 cd ..
 ```
 
+For an existing checkout, update the repository before running setup commands:
+
+```bash
+cd ~/Projects/vpn
+git pull --ff-only
+chmod +x setup.sh uninstall.sh scripts/hotspot-manager.py scripts/github-vpn-routes.sh
+./setup.sh
+```
+
+If `chmod` says `scripts/github-vpn-routes.sh` does not exist, the local checkout is older than the current setup instructions. Run `git pull --ff-only` first, then rerun the `chmod` command.
+
 During setup, enter a hotspot SSID and password when prompted. Leaving the prompts blank keeps the currently installed values from `/etc/hostapd/hostapd.conf`, or the template values from `configs/hostapd.conf` on a first install. For unattended installs, set `HOTSPOT_SSID` and `HOTSPOT_PASSWORD` before running `./setup.sh`.
 
 ## Important Files
@@ -408,7 +419,8 @@ Use setup only when source config changed or after a fresh OS install. Do not us
 
 ```bash
 cd /path/to/vpn
-chmod +x setup.sh
+git pull --ff-only
+chmod +x setup.sh uninstall.sh scripts/hotspot-manager.py scripts/github-vpn-routes.sh
 ./setup.sh
 ```
 
