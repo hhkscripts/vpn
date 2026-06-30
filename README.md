@@ -11,7 +11,7 @@ Traffic is intentionally split:
 - Docker workloads: normal host/Docker routes, not forced through the hotspot VPN
 - GitHub host traffic: selected GitHub IPv4 ranges can be marked into the VPN when the ISP blocks GitHub
 - Binance client traffic: Binance DNS answers are placed in `local_bypass_domains` and routed through `eth0`, so Binance P2P sees the normal Myanmar ISP public IP instead of the VPN exit IP
-- DNS for GoodWifi clients: `10.42.0.1:53` handled by Pi-hole
+- DNS for GoodWifi clients: `10.42.0.1:53` handled by AdGuard Home
 - DHCP for GoodWifi clients: `dnsmasq` on `wlan0`, assigning `10.42.0.10` to `10.42.0.100`
 
 ## Do Not Force The Host Default Route
@@ -25,7 +25,7 @@ ip route add default dev tun0
 
 Those commands replace the Pi's main default route with the VPN tunnel. That is the wrong model for this project.
 
-The Pi must keep its main route on `eth0` so SSH, Docker, Pi-hole, GitHub deployment tooling, and local management keep working. GoodWifi clients are routed through the VPN with policy routing instead:
+The Pi must keep its main route on `eth0` so SSH, Docker, AdGuard Home, GitHub deployment tooling, and local management keep working. GoodWifi clients are routed through the VPN with policy routing instead:
 
 ```text
 from 10.42.0.0/24 lookup table 100
@@ -44,8 +44,8 @@ If an old script forces the main default route to `tun0`, the Pi may lose stable
 ## Components
 
 - `hostapd`: broadcasts the Wi-Fi AP on `wlan0`
-- `dnsmasq`: DHCP only; advertises Pi-hole as DNS
-- `Pi-hole`: DNS and ipset population for GoodWifi clients
+- `dnsmasq`: DHCP only; advertises AdGuard Home as DNS
+- `AdGuard Home`: DNS filtering and ipset population for GoodWifi clients
 - `NetworkManager`: manages Ethernet and the OpenVPN connection named `pi`
 - `configs/90-hotspot-vpn-policy`: installed dispatcher policy
 - `scripts/vpn-routing.sh`: editable mirror of the dispatcher policy
@@ -59,7 +59,7 @@ If an old script forces the main default route to `tun0`, the Pi may lose stable
 - Raspberry Pi OS Bookworm or Bullseye
 - Ethernet upstream on `eth0`
 - NetworkManager OpenVPN profile
-- Docker Compose for Pi-hole and the optional Telegram bot
+- Docker Compose for AdGuard Home and the optional Telegram bot
 
 ## Quick Start
 
@@ -83,14 +83,34 @@ chmod +x setup.sh uninstall.sh scripts/hotspot-manager.py scripts/github-vpn-rou
 ./setup.sh
 ```
 
-Start Pi-hole:
+If this Pi already has the old Pi-hole container running, stop it first so port `53` is free:
 
 ```bash
-cd pihole
+cd ~/Projects/vpn/pihole
+docker compose down
+cd ..
+```
+
+Start AdGuard Home:
+
+```bash
+cd adguard
 cp .env.example .env
 nano .env
 docker compose up -d
 cd ..
+```
+
+Open the AdGuard Home first-run wizard:
+
+```text
+http://10.42.0.1:3000
+```
+
+Use `0.0.0.0:53` for DNS and finish the admin account setup. After setup, the web UI is normally available at:
+
+```text
+http://10.42.0.1
 ```
 
 For an existing checkout after pulling source changes:
@@ -99,7 +119,7 @@ For an existing checkout after pulling source changes:
 cd ~/Projects/vpn
 git pull --ff-only
 ./setup.sh
-cd pihole
+cd adguard
 docker compose restart
 cd ..
 sudo /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy tun0 apply
@@ -146,23 +166,38 @@ hf
 
 `hotspot --restart-vpn` also refreshes GitHub host routes when `/usr/local/bin/github-vpn-routes.sh` is installed.
 
-## Pi-hole DNS And Ipsets
+## AdGuard Home DNS And Ipsets
 
-GoodWifi clients receive `10.42.0.1` as DNS. Pi-hole runs on the host network and loads dnsmasq ipset rules from:
+GoodWifi clients receive `10.42.0.1` as DNS. AdGuard Home runs on the host network and listens directly on the Pi's port `53`.
 
-```text
-pihole/etc-dnsmasq.d/99-goodwifi-ipset.conf
+The old Pi-hole container must not be running at the same time:
+
+```bash
+cd ~/Projects/vpn/pihole
+docker compose down
 ```
 
-Current DNS-to-ipset mappings:
+AdGuard Home stores its live configuration at:
+
+```text
+adguard/conf/AdGuardHome.yaml
+```
+
+After completing the first-run wizard, merge the reference `dns.ipset` entries from:
+
+```text
+adguard/conf/AdGuardHome.yaml.example
+```
+
+GoodWifi expects these DNS-to-ipset mappings:
 
 - GitHub domains -> `vpn_domains`
 - Binance domains -> `local_bypass_domains`
 
-Restart Pi-hole after changing that file:
+Restart AdGuard Home after changing its config:
 
 ```bash
-cd ~/Projects/vpn/pihole
+cd ~/Projects/vpn/adguard
 docker compose restart
 ```
 
@@ -170,7 +205,9 @@ Verify DNS:
 
 ```bash
 nslookup google.com 10.42.0.1
-docker logs --tail=80 pihole
+docker logs --tail=80 adguardhome
+sudo ipset list vpn_domains
+sudo ipset list local_bypass_domains
 ```
 
 ## GitHub Through VPN
@@ -209,7 +246,7 @@ Binance P2P can reject VPN exit IPs. GoodWifi keeps normal client traffic on the
 GoodWifi client -> wlan0 -> eth0 -> Myanmar ISP
 ```
 
-This depends on clients using Pi-hole DNS (`10.42.0.1`). Android Private DNS, browser DNS-over-HTTPS, another VPN app, or a proxy can bypass Pi-hole and prevent Binance IPs from entering `local_bypass_domains`.
+This depends on clients using AdGuard Home DNS (`10.42.0.1`). Android Private DNS, browser DNS-over-HTTPS, another VPN app, or a proxy can bypass AdGuard Home and prevent Binance IPs from entering `local_bypass_domains`.
 
 Verify:
 
@@ -390,8 +427,8 @@ configs/90-hotspot-vpn-policy
 scripts/vpn-routing.sh
 scripts/github-vpn-routes.sh
 scripts/hotspot-manager.py
-pihole/docker-compose.yml
-pihole/etc-dnsmasq.d/99-goodwifi-ipset.conf
+adguard/docker-compose.yml
+adguard/conf/AdGuardHome.yaml.example
 telegrambot/README.md
 ```
 

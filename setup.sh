@@ -105,26 +105,39 @@ connect_vpn_if_available() {
   sleep 3
 }
 
-restart_pihole_if_configured() {
-  local compose_dir="$PROJECT_DIR/pihole"
+stop_legacy_pihole_if_running() {
+  if ! command -v docker >/dev/null 2>&1; then
+    return
+  fi
+
+  if sudo docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx 'pihole'; then
+    log_info "Stopping legacy Pi-hole container before starting AdGuard Home"
+    sudo docker stop pihole >/dev/null 2>&1 || true
+  fi
+}
+
+restart_adguard_if_configured() {
+  local compose_dir="$PROJECT_DIR/adguard"
 
   if [ ! -f "$compose_dir/docker-compose.yml" ]; then
     return
   fi
 
   if [ ! -f "$compose_dir/.env" ]; then
-    log_warn "Pi-hole .env not found. Start Pi-hole later with: cd pihole && cp .env.example .env && docker compose up -d"
+    log_warn "AdGuard Home .env not found. Start it later with: cd adguard && cp .env.example .env && docker compose up -d"
     return
   fi
 
   if ! command -v docker >/dev/null 2>&1; then
-    log_warn "Docker not found; skipping Pi-hole restart"
+    log_warn "Docker not found; skipping AdGuard Home restart"
     return
   fi
 
-  log_info "Starting/restarting Pi-hole DNS service"
+  stop_legacy_pihole_if_running
+
+  log_info "Starting/restarting AdGuard Home DNS service"
   if ! (cd "$compose_dir" && sudo docker compose up -d); then
-    log_warn "Could not start Pi-hole. Retry with: cd pihole && docker compose up -d"
+    log_warn "Could not start AdGuard Home. Retry with: cd adguard && docker compose up -d"
   fi
 }
 
@@ -247,7 +260,7 @@ sudo systemctl restart NetworkManager
 sudo systemctl unmask hostapd 2>/dev/null || true
 sudo systemctl enable hostapd dnsmasq 2>/dev/null || true
 sudo systemctl restart hostapd dnsmasq 2>/dev/null || true
-restart_pihole_if_configured
+restart_adguard_if_configured
 
 if ! vpn_has_ipv4; then
   connect_vpn_if_available

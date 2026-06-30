@@ -1,0 +1,13 @@
+# Optional reference config for GoodWifi-specific DNS routing.
+# Run AdGuard Home once, finish the web setup, then merge the `dns.ipset`
+# entries below into adguard/conf/AdGuardHome.yaml and restart the container.
+dns:
+  bind_hosts:
+    - 0.0.0.0
+  port: 53
+  upstream_dns:
+    - 1.1.1.1
+    - 8.8.8.8
+  ipset:
+    - github.com,githubusercontent.com,actions.githubusercontent.com/vpn_domains
+    - binance.com,binance.me,binance.info,binance.org,bnbstatic.com,bntrace.com/local_bypass_domains
