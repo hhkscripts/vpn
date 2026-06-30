@@ -40,9 +40,9 @@ telegrambot/venv/
 !.env.example
 
 # Runtime service state
-pihole/etc-pihole/
-pihole/etc-dnsmasq.d/*
-!pihole/etc-dnsmasq.d/99-goodwifi-ipset.conf
+pihole/
+adguard/work/
+adguard/conf/AdGuardHome.yaml
 
 # Editors
 .vscode/
