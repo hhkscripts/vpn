@@ -46,7 +46,7 @@ jobs:
           cd telegrambot
           docker compose down || true
           docker compose up -d --build
-          docker compose logs -f &
+          docker compose logs --tail=80
           sleep 5
           docker compose ps
 
