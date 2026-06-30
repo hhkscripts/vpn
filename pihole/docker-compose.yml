@@ -10,6 +10,9 @@ services:
       FTLCONF_dns_listeningMode: LOCAL
       FTLCONF_dns_upstreams: 1.1.1.1;8.8.8.8
       FTLCONF_misc_etc_dnsmasq_d: "true"
+      FTLCONF_ntp_ipv4_active: "false"
+      FTLCONF_ntp_ipv6_active: "false"
+      FTLCONF_ntp_sync_active: "false"
     volumes:
       - ./etc-pihole:/etc/pihole
       - ./etc-dnsmasq.d:/etc/dnsmasq.d
