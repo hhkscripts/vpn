@@ -75,6 +75,7 @@ restore_or_remove /etc/default/hostapd "$BACKUP_DIR"
 restore_or_remove /etc/NetworkManager/dispatcher.d/20-hotspot-manager "$BACKUP_DIR"
 restore_or_remove /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy "$BACKUP_DIR"
 restore_or_remove /usr/local/bin/hotspot-manager.py "$BACKUP_DIR"
+restore_or_remove /usr/local/bin/github-vpn-routes.sh "$BACKUP_DIR"
 if [ -n "$BACKUP_DIR" ] && [ -e "$BACKUP_DIR/etc/dhcpcd.conf" ]; then
   sudo cp -a "$BACKUP_DIR/etc/dhcpcd.conf" /etc/dhcpcd.conf
 else

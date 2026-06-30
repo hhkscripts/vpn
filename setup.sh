@@ -28,6 +28,7 @@ required_files=(
   "$CONFIG_DIR/20-hotspot-manager"
   "$CONFIG_DIR/90-hotspot-vpn-policy"
   "$SCRIPT_DIR/hotspot-manager.py"
+  "$SCRIPT_DIR/github-vpn-routes.sh"
 )
 
 backup_file() {
@@ -179,6 +180,7 @@ echo 'DAEMON_CONF="/etc/hostapd/hostapd.conf"' | sudo tee /etc/default/hostapd >
 
 log_info "Installing manager script from scripts/"
 copy_file "$SCRIPT_DIR/hotspot-manager.py" /usr/local/bin/hotspot-manager.py 0755
+copy_file "$SCRIPT_DIR/github-vpn-routes.sh" /usr/local/bin/github-vpn-routes.sh 0755
 
 log_info "Installing shell aliases"
 sed -i '/^alias hotspot=/d; /^alias hs=/d; /^alias hf=/d' "$HOME/.bashrc"
@@ -226,9 +228,14 @@ fi
 if vpn_has_ipv4; then
   log_info "tun0 is active and has an IPv4 address"
   sudo /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy tun0 up
+  log_info "Refreshing GitHub host routes through tun0"
+  if ! sudo /usr/local/bin/github-vpn-routes.sh; then
+    log_warn "Could not refresh GitHub host routes. You can retry with: sudo github-vpn-routes.sh"
+  fi
 else
   log_warn "tun0 has no IPv4 address yet. If VPN 'pi' is active, confirm it creates tun0."
   log_warn "After the VPN is healthy, reapply hotspot routing with: hotspot --restart-vpn"
+  log_warn "Then refresh GitHub host routes with: sudo github-vpn-routes.sh"
 fi
 
 log_info "SETUP/APPLY COMPLETE"

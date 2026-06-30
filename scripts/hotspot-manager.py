@@ -65,6 +65,8 @@ CONFIG: Config = {
     "ping_target": "8.8.8.8",
 }
 
+GITHUB_ROUTE_SCRIPT = "/usr/local/bin/github-vpn-routes.sh"
+
 
 class Colors:
     GREEN = "\033[92m"
@@ -220,6 +222,7 @@ def restart_vpn() -> bool:
                 "up",
             ]
         )
+        refresh_github_routes()
         return True
     log("VPN not connected, connecting...")
     run_args(["sudo", "nmcli", "connection", "down", CONFIG["vpn_name"]])
@@ -236,7 +239,19 @@ def restart_vpn() -> bool:
                 "up",
             ]
         )
+        refresh_github_routes()
     return ok
+
+
+def refresh_github_routes() -> None:
+    ok, _, err = run_args(["test", "-x", GITHUB_ROUTE_SCRIPT])
+    if not ok:
+        return
+
+    ok, _, err = run_args(["sudo", GITHUB_ROUTE_SCRIPT])
+    if not ok:
+        detail = f": {err}" if err else ""
+        log(f"GitHub route refresh failed{detail}", "WARN")
 
 
 def fix_hotspot() -> bool:

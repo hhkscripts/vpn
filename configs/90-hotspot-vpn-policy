@@ -10,6 +10,7 @@ RULE_PRIORITY="1000"
 HOST_RULE_PRIORITY="999"
 FWMARK="100"
 VPN_IPSET="vpn_domains"
+GITHUB_IPSET="github_vpn_routes"
 IPTABLES_CHAIN="GOODWIFI_FORWARD"
 IP6TABLES_CHAIN="GOODWIFI6_FORWARD"
 
@@ -88,10 +89,12 @@ apply_policy() {
 
     echo 1 > /proc/sys/net/ipv4/ip_forward
     ipset create "$VPN_IPSET" hash:ip 2>/dev/null || true
+    ipset create "$GITHUB_IPSET" hash:net family inet 2>/dev/null || true
     ensure_filter_chain "$IPTABLES_CHAIN"
     ensure_ip6_filter_chain "$IP6TABLES_CHAIN"
 
     remove_rule mangle OUTPUT -m set --match-set "$VPN_IPSET" dst -j MARK --set-mark "$FWMARK"
+    remove_rule mangle OUTPUT -m set --match-set "$GITHUB_IPSET" dst -j MARK --set-mark "$FWMARK"
     remove_rule filter FORWARD -i wlan0 -o "$VPN_IF" -s "$HOTSPOT_SUBNET" -j ACCEPT
     remove_rule filter FORWARD -i "$VPN_IF" -o wlan0 -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
     remove_rule filter FORWARD -i wlan0 -o "$LAN_IF" -j ACCEPT
@@ -115,6 +118,8 @@ apply_policy() {
         iptables -t nat -A POSTROUTING -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -j MASQUERADE
     iptables -t mangle -C OUTPUT -m set --match-set "$VPN_IPSET" dst -j MARK --set-mark "$FWMARK" 2>/dev/null || \
         iptables -t mangle -A OUTPUT -m set --match-set "$VPN_IPSET" dst -j MARK --set-mark "$FWMARK"
+    iptables -t mangle -C OUTPUT -m set --match-set "$GITHUB_IPSET" dst -j MARK --set-mark "$FWMARK" 2>/dev/null || \
+        iptables -t mangle -A OUTPUT -m set --match-set "$GITHUB_IPSET" dst -j MARK --set-mark "$FWMARK"
     iptables -A "$IPTABLES_CHAIN" -i wlan0 -o "$VPN_IF" -s "$HOTSPOT_SUBNET" -j ACCEPT
     iptables -A "$IPTABLES_CHAIN" -i "$VPN_IF" -o wlan0 -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
     remove_rule mangle FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200
@@ -135,6 +140,7 @@ apply_policy() {
 cleanup_policy() {
     remove_rule nat POSTROUTING -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -j MASQUERADE
     remove_rule mangle OUTPUT -m set --match-set "$VPN_IPSET" dst -j MARK --set-mark "$FWMARK"
+    remove_rule mangle OUTPUT -m set --match-set "$GITHUB_IPSET" dst -j MARK --set-mark "$FWMARK"
     remove_rule mangle FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200
     remove_rule mangle FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
     remove_rule filter FORWARD -i wlan0 -o "$VPN_IF" -s "$HOTSPOT_SUBNET" -j ACCEPT
