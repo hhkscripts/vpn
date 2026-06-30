@@ -105,6 +105,29 @@ connect_vpn_if_available() {
   sleep 3
 }
 
+restart_pihole_if_configured() {
+  local compose_dir="$PROJECT_DIR/pihole"
+
+  if [ ! -f "$compose_dir/docker-compose.yml" ]; then
+    return
+  fi
+
+  if [ ! -f "$compose_dir/.env" ]; then
+    log_warn "Pi-hole .env not found. Start Pi-hole later with: cd pihole && cp .env.example .env && docker compose up -d"
+    return
+  fi
+
+  if ! command -v docker >/dev/null 2>&1; then
+    log_warn "Docker not found; skipping Pi-hole restart"
+    return
+  fi
+
+  log_info "Starting/restarting Pi-hole DNS service"
+  if ! (cd "$compose_dir" && sudo docker compose up -d); then
+    log_warn "Could not start Pi-hole. Retry with: cd pihole && docker compose up -d"
+  fi
+}
+
 render_hostapd_conf() {
   local ssid="$1"
   local password="$2"
@@ -224,6 +247,7 @@ sudo systemctl restart NetworkManager
 sudo systemctl unmask hostapd 2>/dev/null || true
 sudo systemctl enable hostapd dnsmasq 2>/dev/null || true
 sudo systemctl restart hostapd dnsmasq 2>/dev/null || true
+restart_pihole_if_configured
 
 if ! vpn_has_ipv4; then
   connect_vpn_if_available
