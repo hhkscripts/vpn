@@ -45,6 +45,10 @@ copy_file() {
   local mode="$3"
   backup_file "$dest"
   sudo mkdir -p "$(dirname "$dest")"
+  if [ -d "$dest" ] && [ ! -L "$dest" ]; then
+    log_warn "Replacing unexpected directory at $dest with file from $src"
+    sudo rm -rf "$dest"
+  fi
   sudo cp "$src" "$dest"
   sudo chmod "$mode" "$dest"
 }
