@@ -64,6 +64,9 @@ CONFIG: Config = {
     "ping_target": "8.8.8.8",
 }
 
+GITHUB_ROUTE_SCRIPT = "/usr/local/bin/github-vpn-routes.sh"
+POLICY_SCRIPT = "/etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy"
+
 CUSTOM_EMOJIS = {
     "signal": '<tg-emoji emoji-id="6127157759872868272">📡</tg-emoji>',      # 📡 အစား
     "tools": '<tg-emoji emoji-id="6141134446742478627">🔧</tg-emoji>',       # 🔧 အစား
@@ -109,8 +112,8 @@ def run_args(cmd: Sequence[str]) -> tuple[bool, str, str]:
             cmd, capture_output=True, text=True, timeout=30, check=False
         )
         return result.returncode == 0, result.stdout.strip(), result.stderr.strip()
-    except Exception:
-        return False, "", ""
+    except Exception as exc:
+        return False, "", str(exc)
 
 
 def check_service(service: str) -> bool:
@@ -271,34 +274,58 @@ def get_hotspot_ssid() -> str:
     return CONFIG["default_hotspot_ssid"]
 
 
+def apply_vpn_policy() -> bool:
+    ok, out, err = run_args(["sudo", POLICY_SCRIPT, "tun0", "up"])
+    if not ok:
+        detail = err or out or "unknown error"
+        log(f"VPN policy apply failed: {detail}", "ERROR")
+        return False
+
+    route_ok, route_out, _ = run_args(["ip", "route", "show", "table", "100"])
+    rule_ok, rule_out, _ = run_args(["ip", "rule", "show"])
+    policy_ok = (
+        route_ok
+        and "default dev tun0" in route_out
+        and rule_ok
+        and (
+            "from 10.42.0.0/24 lookup 100" in rule_out
+            or "from 10.42.0.0/24 lookup github_vpn" in rule_out
+        )
+    )
+    if not policy_ok:
+        log("VPN policy apply did not install GoodWifi table 100 routing", "ERROR")
+        return False
+    return True
+
+
 def restart_vpn() -> bool:
     if check_vpn():
-        log("VPN already connected")
-        run_args(
-            [
-                "sudo",
-                "/etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy",
-                "tun0",
-                "up",
-            ]
-        )
-        return True
-    log("VPN not connected, connecting...")
+        log("Restarting VPN connection...")
+    else:
+        log("VPN not connected, connecting...")
     run_args(["sudo", "nmcli", "connection", "down", CONFIG["vpn_name"]])
     time.sleep(2)
-    ok, _, _ = run_args(["sudo", "nmcli", "connection", "up", CONFIG["vpn_name"]])
+    ok, out, err = run_args(["sudo", "nmcli", "connection", "up", CONFIG["vpn_name"]])
     if ok:
         log("VPN connected", "SUCCESS")
         time.sleep(3)
-        run_args(
-            [
-                "sudo",
-                "/etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy",
-                "tun0",
-                "up",
-            ]
-        )
+        ok = apply_vpn_policy()
+        refresh_github_routes()
+    else:
+        detail = err or out or "unknown error"
+        log(f"VPN connect failed: {detail}", "ERROR")
     return ok
+
+
+def refresh_github_routes() -> None:
+    ok, _, _ = run_args(["test", "-x", GITHUB_ROUTE_SCRIPT])
+    if not ok:
+        return
+
+    ok, out, err = run_args(["sudo", GITHUB_ROUTE_SCRIPT])
+    if not ok:
+        detail = err or out or "unknown error"
+        log(f"GitHub route refresh failed: {detail}", "WARN")
 
 
 def fix_hotspot() -> bool:
@@ -306,10 +333,8 @@ def fix_hotspot() -> bool:
     run_args(["sudo", "systemctl", "restart", "hostapd", "dnsmasq"])
     time.sleep(2)
     vpn_ok = restart_vpn()
-    run_args(
-        ["sudo", "/etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy", "tun0", "up"]
-    )
-    return vpn_ok
+    policy_ok = apply_vpn_policy() if vpn_ok else False
+    return vpn_ok and policy_ok
 
 
 def get_status() -> HotspotStatus:
@@ -528,14 +553,17 @@ def main() -> None:
         print(f"Clients: {check_clients()}")
 
     if args.restart_vpn:
-        restart_vpn()
+        if not restart_vpn():
+            sys.exit(1)
 
     if args.fix:
-        fix_hotspot()
+        if not fix_hotspot():
+            sys.exit(1)
         print_status(get_status())
 
     if args.restart:
-        fix_hotspot()
+        if not fix_hotspot():
+            sys.exit(1)
 
 
 if __name__ == "__main__":

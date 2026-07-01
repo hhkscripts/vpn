@@ -24,10 +24,13 @@ case "${2:-}" in
                 log_message "Internet available"
                 CLIENTS="$(iw dev wlan0 station dump 2>/dev/null | awk '/Station/ {count++} END {print count + 0}')"
                 if [ "$CLIENTS" -gt 0 ]; then
-                    log_message "Clients connected ($CLIENTS), ensuring VPN..."
-                    if ! nmcli -t -f TYPE connection show --active | grep -q "^vpn:"; then
+                    log_message "Clients connected ($CLIENTS), ensuring VPN policy..."
+                    if nmcli -t -f NAME,TYPE connection show --active | grep -qx "$VPN_UUID:vpn"; then
+                        /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy tun0 up >> "$LOG_FILE" 2>&1 || true
+                    else
                         log_message "VPN not active, connecting..."
                         nmcli connection up "$VPN_UUID" >> "$LOG_FILE" 2>&1
+                        /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy tun0 up >> "$LOG_FILE" 2>&1 || true
                     fi
                 fi
             else

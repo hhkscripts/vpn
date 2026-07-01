@@ -71,7 +71,7 @@ def run_hotspot_command(args: List[str]):
         # Use the host path directly since we mount the entire filesystem
         script_path = "/host/home/hhk/Projects/vpn/telegrambot/hotspot-manager.py"
         cmd = ["python3", script_path] + args
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
         return result.stdout, result.stderr, result.returncode
     except Exception as e:
         return "", str(e), -1
