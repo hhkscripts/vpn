@@ -68,11 +68,22 @@ def check_authorization(user_id: int) -> bool:
     return user_id in ALLOWED_USER_IDS
 
 def run_hotspot_command(args: List[str]):
-    """Run hotspot-manager.py from the host filesystem"""
+    """Run hotspot-manager.py in the host namespaces."""
     try:
-        # Use the host path directly since we mount the entire filesystem
-        script_path = "/host/home/hhk/Projects/vpn/telegrambot/hotspot-manager.py"
-        cmd = ["python3", script_path] + args
+        script_path = "/home/hhk/Projects/vpn/telegrambot/hotspot-manager.py"
+        cmd = [
+            "nsenter",
+            "--target",
+            "1",
+            "--mount",
+            "--uts",
+            "--ipc",
+            "--net",
+            "--pid",
+            "--",
+            "python3",
+            script_path,
+        ] + args
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
         return result.stdout, result.stderr, result.returncode
     except Exception as e:

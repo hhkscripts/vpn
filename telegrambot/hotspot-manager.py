@@ -4,6 +4,7 @@ Raspberry Pi Hotspot Manager - Smart Monitoring
 """
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -108,6 +109,8 @@ def log(msg: str, level: str = "INFO") -> None:
 
 def run_args(cmd: Sequence[str]) -> tuple[bool, str, str]:
     try:
+        if cmd and cmd[0] == "sudo" and os.geteuid() == 0:
+            cmd = cmd[1:]
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=30, check=False
         )
@@ -298,6 +301,16 @@ def apply_vpn_policy() -> bool:
     return True
 
 
+def wait_for_interface(interface: str, timeout: int = 60) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        ok, _, _ = run_args(["ip", "link", "show", "dev", interface])
+        if ok:
+            return True
+        time.sleep(1)
+    return False
+
+
 def restart_vpn() -> bool:
     if check_vpn():
         log("Restarting VPN connection...")
@@ -308,7 +321,9 @@ def restart_vpn() -> bool:
     ok, out, err = run_args(["sudo", "nmcli", "connection", "up", CONFIG["vpn_name"]])
     if ok:
         log("VPN connected", "SUCCESS")
-        time.sleep(3)
+        if not wait_for_interface("tun0"):
+            log("VPN interface tun0 did not become available", "ERROR")
+            return False
         ok = apply_vpn_policy()
         refresh_github_routes()
     else:
