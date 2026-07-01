@@ -9,7 +9,7 @@ This optional bot controls the Raspberry Pi GoodWifi hotspot through Telegram. I
 Service/container name:
 
 ```text
-mpxhotspotbot
+mpxraspberrypibot
 ```
 
 ## Setup
@@ -34,6 +34,7 @@ Optional:
 TELEGRAM_ALLOWED_USERS=<telegram-user-id>
 BOT_HEALTH_HOST=0.0.0.0
 BOT_HEALTH_PORT=8081
+BOT_SERVICE_NAME=mpxraspberrypibot
 ```
 
 Start or update the bot:
@@ -59,13 +60,13 @@ docker compose up -d --build
 The bot exposes a health endpoint for the central Cloudflare tunnel:
 
 ```text
-https://mpxhotspotbot.hhk.my.id/bot-health
+https://mpxraspberrypibot.hhk.my.id/bot-health
 ```
 
 Cloudflare should point to:
 
 ```text
-http://mpxhotspotbot:8081
+http://mpxraspberrypibot:8081
 ```
 
 The central `cloudflared` container is managed outside this project. Do not run a separate `cloudflared` process from this directory.

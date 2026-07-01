@@ -15,14 +15,16 @@ ALLOWED_USERS = os.getenv("TELEGRAM_ALLOWED_USERS", "")
 ALLOWED_USER_IDS = [int(uid.strip()) for uid in ALLOWED_USERS.split(",") if uid.strip().isdigit()] if ALLOWED_USERS else []
 BOT_HEALTH_HOST = os.getenv("BOT_HEALTH_HOST", "0.0.0.0")
 BOT_HEALTH_PORT = int(os.getenv("BOT_HEALTH_PORT", "8081"))
-BOT_SERVICE_NAME = "mpxhotspotbot"
+BOT_SERVICE_NAME = os.getenv("BOT_SERVICE_NAME", "mpxraspberrypibot")
 
 # Get the directory where bot.py is located and construct the path to hotspot-manager.py
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SCRIPT_PATH = os.path.join(SCRIPT_DIR, "hotspot-manager.py")
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.WARNING)
 logger = logging.getLogger(__name__)
+for noisy_logger in ("httpx", "httpcore", "telegram", "telegram.ext"):
+    logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
 _bot_ready = threading.Event()
 
