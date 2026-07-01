@@ -1,6 +1,7 @@
 services:
   mpxraspberrypibot:
     build: .
+    image: mpxraspberrypibot
     container_name: mpxraspberrypibot
     restart: unless-stopped
     networks:
