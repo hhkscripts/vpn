@@ -7,6 +7,7 @@ GoodWifi is a Raspberry Pi Wi-Fi hotspot that sends connected client traffic thr
 Traffic is intentionally split:
 
 - GoodWifi clients: `10.42.0.0/24 -> wlan0 -> tun0 -> VPN/VPS`
+- GoodWifi management access: selected local/VPN management subnets stay on the Pi's main routes instead of the VPN-only client table
 - Pi host traffic: `eth0 -> <LAN gateway> -> ISP router`
 - Docker workloads: normal host/Docker routes, not forced through the hotspot VPN
 - GitHub host traffic: selected GitHub IPv4 ranges can be marked into the VPN when the ISP blocks GitHub
@@ -38,6 +39,7 @@ Targeted exceptions then use marks and ipsets:
 
 - `github_vpn_routes` + mark `100`: send selected Pi host GitHub traffic through `tun0`
 - `local_bypass_domains` + mark `101`: send selected hotspot client destinations, currently Binance, through `eth0`
+- management subnet rules at priority `997`: let GoodWifi clients reach `10.8.0.0/24`, `192.168.100.0/24`, and `192.168.1.0/24` through the Pi's main routing table
 
 If an old script forces the main default route to `tun0`, the Pi may lose stable DNS, Docker networking, SSH reachability, and deployment access.
 
