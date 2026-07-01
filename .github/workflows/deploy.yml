@@ -1,34 +1,27 @@
 name: Deploy Telegram Bot
 
 on:
-  push:
-    branches: [ "main" ]
-    paths:
-      - 'telegrambot/**'
-      - '.github/workflows/deploy.yml'
+  workflow_run:
+    workflows: ["Quality"]
+    types: [completed]
   workflow_dispatch:
 
 jobs:
   deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     runs-on: self-hosted
     environment: production
     steps:
-      - name: Checkout code to workspace
+      - name: Checkout workflow scripts
         uses: actions/checkout@v4
         with:
-          # For self-hosted runners, ensure we're in the correct directory
-          path: '.'
-          # Fetch all history to ensure proper state
           fetch-depth: 0
 
-      - name: Ensure clean git state
-        run: |
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
-          git reset --hard origin/main
-          git clean -fd
+      - name: Pull latest source on Pi runner
+        run: bash scripts/github-runner-pull.sh
 
       - name: Create .env file from Secrets
+        working-directory: /home/hhk/Projects/vpn
         run: |
           cd telegrambot
           echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" > .env
@@ -42,6 +35,7 @@ jobs:
           fi
 
       - name: Build and Run with Docker Compose
+        working-directory: /home/hhk/Projects/vpn
         run: |
           cd telegrambot
           docker compose down --remove-orphans || true
@@ -51,6 +45,7 @@ jobs:
           docker compose ps
 
       - name: Verify Deployment
+        working-directory: /home/hhk/Projects/vpn
         run: |
           cd telegrambot
           if docker compose ps | grep -q "Up"; then

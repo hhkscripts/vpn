@@ -20,7 +20,7 @@ jobs:
           python -m pip install black flake8
 
       - name: ShellCheck
-        run: shellcheck setup.sh uninstall.sh configs/20-hotspot-manager configs/90-hotspot-vpn-policy scripts/vpn-routing.sh
+        run: shellcheck setup.sh uninstall.sh configs/20-hotspot-manager configs/90-hotspot-vpn-policy scripts/vpn-routing.sh scripts/github-runner-pull.sh
 
       - name: Black check
         run: black --check scripts/hotspot-manager.py
