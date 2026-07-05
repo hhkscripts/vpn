@@ -240,6 +240,24 @@ Expected:
 140.82.112.4 dev tun0 table 100
 ```
 
+## Client VPN Through GoodWifi
+
+GoodWifi can be used as the first VPN layer for a client device, then the client
+can start its own VPN profile as a second layer:
+
+```text
+client device -> GoodWifi -> Pi tun0 -> client VPN provider
+```
+
+If a client-side OpenVPN profile uses older CBC ciphers with OpenVPN 2.6, add
+client compatibility lines to that client profile, not to the Pi routing policy:
+
+```conf
+data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305:AES-256-CBC
+data-ciphers-fallback AES-256-CBC
+mssfix 1200
+```
+
 ## Binance Through Myanmar ISP
 
 Binance P2P can reject VPN exit IPs. GoodWifi keeps normal client traffic on the VPN but sends Binance destinations through the Pi's Ethernet route:
