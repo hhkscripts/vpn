@@ -232,7 +232,11 @@ sed -i '/^alias hotspot=/d; /^alias hs=/d; /^alias hf=/d' "$HOME/.bashrc"
 
 log_info "Configuring system forwarding and wlan0 ownership"
 sudo sysctl -w net.ipv4.ip_forward=1
+sudo sysctl -w net.ipv6.conf.all.forwarding=1
+sudo sysctl -w net.ipv6.conf.default.forwarding=1
 ensure_line 'net.ipv4.ip_forward=1' /etc/sysctl.conf
+ensure_line 'net.ipv6.conf.all.forwarding=1' /etc/sysctl.conf
+ensure_line 'net.ipv6.conf.default.forwarding=1' /etc/sysctl.conf
 sudo systemctl stop wpa_supplicant 2>/dev/null || true
 sudo systemctl disable wpa_supplicant 2>/dev/null || true
 sudo rfkill unblock wifi 2>/dev/null || true
@@ -253,6 +257,7 @@ sudo ip addr flush dev wlan0 || true
 sudo ip link set wlan0 up
 sudo /sbin/iw dev wlan0 set power_save off 2>/dev/null || true
 sudo ip addr add 10.42.0.1/24 dev wlan0 2>/dev/null || true
+sudo ip -6 addr add fd42:42:42:42::1/64 dev wlan0 2>/dev/null || true
 
 log_info "Restarting NetworkManager and hotspot services"
 sudo systemctl daemon-reload

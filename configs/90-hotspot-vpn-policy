@@ -2,6 +2,7 @@
 # Keep Pi host traffic on eth0 while routing hotspot clients through the VPN.
 
 HOTSPOT_SUBNET="10.42.0.0/24"
+HOTSPOT_IPV6_SUBNET="${HOTSPOT_IPV6_SUBNET:-fd42:42:42:42::/64}"
 VPN_IF="tun0"
 LAN_IF="eth0"
 LAN_GW_OVERRIDE="${LAN_GW:-}"
@@ -114,7 +115,14 @@ apply_policy() {
     remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j MARK --set-mark "$BYPASS_FWMARK"
     remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j MARK --set-mark 0
     remove_ip6_rule FORWARD -i wlan0 -j DROP
+    remove_ip6_rule FORWARD -i wlan0 -o "$VPN_IF" -s "$HOTSPOT_IPV6_SUBNET" -j ACCEPT
+    remove_ip6_rule FORWARD -i "$VPN_IF" -o wlan0 -d "$HOTSPOT_IPV6_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
+    while ip6tables -t nat -C POSTROUTING -s "$HOTSPOT_IPV6_SUBNET" -o "$VPN_IF" -j MASQUERADE 2>/dev/null; do
+        ip6tables -t nat -D POSTROUTING -s "$HOTSPOT_IPV6_SUBNET" -o "$VPN_IF" -j MASQUERADE
+    done
 
+    echo 1 > /proc/sys/net/ipv6/conf/all/forwarding
+    echo 1 > /proc/sys/net/ipv6/conf/default/forwarding
     ip route del default dev "$VPN_IF" table main metric 100 2>/dev/null || \
         ip route del default dev "$VPN_IF" table main 2>/dev/null || true
     if [ -n "$LAN_GW" ]; then
@@ -123,9 +131,13 @@ apply_policy() {
     fi
     ip route replace "$HOTSPOT_SUBNET" dev wlan0 table "$TABLE_ID" 2>/dev/null || true
     ip route replace default dev "$VPN_IF" table "$TABLE_ID" 2>/dev/null || true
+    ip -6 route replace "$HOTSPOT_IPV6_SUBNET" dev wlan0 table "$TABLE_ID" 2>/dev/null || true
+    ip -6 route replace default dev "$VPN_IF" table "$TABLE_ID" 2>/dev/null || true
 
     ip rule del from "$HOTSPOT_SUBNET" table "$TABLE_ID" priority "$RULE_PRIORITY" 2>/dev/null || true
     ip rule add from "$HOTSPOT_SUBNET" table "$TABLE_ID" priority "$RULE_PRIORITY" 2>/dev/null || true
+    ip -6 rule del from "$HOTSPOT_IPV6_SUBNET" table "$TABLE_ID" priority "$RULE_PRIORITY" 2>/dev/null || true
+    ip -6 rule add from "$HOTSPOT_IPV6_SUBNET" table "$TABLE_ID" priority "$RULE_PRIORITY" 2>/dev/null || true
     ip rule del fwmark "$FWMARK" table "$TABLE_ID" priority "$HOST_RULE_PRIORITY" 2>/dev/null || true
     ip rule add fwmark "$FWMARK" table "$TABLE_ID" priority "$HOST_RULE_PRIORITY" 2>/dev/null || true
     ip rule del fwmark "$BYPASS_FWMARK" table main priority "$BYPASS_RULE_PRIORITY" 2>/dev/null || true
@@ -181,6 +193,19 @@ apply_policy() {
     iptables -C INPUT -i wlan0 -p udp --dport 53 -j ACCEPT 2>/dev/null || \
         iptables -A INPUT -i wlan0 -p udp --dport 53 -j ACCEPT
 
+    ip6tables -C INPUT -i wlan0 -p ipv6-icmp -j ACCEPT 2>/dev/null || \
+        ip6tables -A INPUT -i wlan0 -p ipv6-icmp -j ACCEPT
+    ip6tables -C INPUT -i wlan0 -p udp --dport 547 -j ACCEPT 2>/dev/null || \
+        ip6tables -A INPUT -i wlan0 -p udp --dport 547 -j ACCEPT
+    ip6tables -C INPUT -i wlan0 -p tcp --dport 53 -j ACCEPT 2>/dev/null || \
+        ip6tables -A INPUT -i wlan0 -p tcp --dport 53 -j ACCEPT
+    ip6tables -C INPUT -i wlan0 -p udp --dport 53 -j ACCEPT 2>/dev/null || \
+        ip6tables -A INPUT -i wlan0 -p udp --dport 53 -j ACCEPT
+
+    ip6tables -t nat -C POSTROUTING -s "$HOTSPOT_IPV6_SUBNET" -o "$VPN_IF" -j MASQUERADE 2>/dev/null || \
+        ip6tables -t nat -A POSTROUTING -s "$HOTSPOT_IPV6_SUBNET" -o "$VPN_IF" -j MASQUERADE
+    ip6tables -A "$IP6TABLES_CHAIN" -i wlan0 -o "$VPN_IF" -s "$HOTSPOT_IPV6_SUBNET" -j ACCEPT
+    ip6tables -A "$IP6TABLES_CHAIN" -i "$VPN_IF" -o wlan0 -d "$HOTSPOT_IPV6_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
     ip6tables -A "$IP6TABLES_CHAIN" -i wlan0 -j DROP
 }
 
@@ -197,6 +222,11 @@ cleanup_policy() {
     remove_rule filter FORWARD -i "$VPN_IF" -o wlan0 -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
     remove_rule filter FORWARD -i wlan0 -o "$LAN_IF" -j ACCEPT
     remove_rule filter FORWARD -i "$LAN_IF" -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+    remove_ip6_rule FORWARD -i wlan0 -o "$VPN_IF" -s "$HOTSPOT_IPV6_SUBNET" -j ACCEPT
+    remove_ip6_rule FORWARD -i "$VPN_IF" -o wlan0 -d "$HOTSPOT_IPV6_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
+    while ip6tables -t nat -C POSTROUTING -s "$HOTSPOT_IPV6_SUBNET" -o "$VPN_IF" -j MASQUERADE 2>/dev/null; do
+        ip6tables -t nat -D POSTROUTING -s "$HOTSPOT_IPV6_SUBNET" -o "$VPN_IF" -j MASQUERADE
+    done
     for subnet in $MANAGEMENT_SUBNETS; do
         remove_rule filter FORWARD -i wlan0 -o "$LAN_IF" -s "$HOTSPOT_SUBNET" -d "$subnet" -j ACCEPT
         remove_rule filter FORWARD -i "$LAN_IF" -o wlan0 -d "$HOTSPOT_SUBNET" -s "$subnet" -m state --state RELATED,ESTABLISHED -j ACCEPT
@@ -208,13 +238,19 @@ cleanup_policy() {
     remove_rule filter INPUT -i wlan0 -p udp --dport 67:68 -j ACCEPT
     remove_rule filter INPUT -i wlan0 -p tcp --dport 53 -j ACCEPT
     remove_rule filter INPUT -i wlan0 -p udp --dport 53 -j ACCEPT
+    remove_ip6_rule INPUT -i wlan0 -p ipv6-icmp -j ACCEPT
+    remove_ip6_rule INPUT -i wlan0 -p udp --dport 547 -j ACCEPT
+    remove_ip6_rule INPUT -i wlan0 -p tcp --dport 53 -j ACCEPT
+    remove_ip6_rule INPUT -i wlan0 -p udp --dport 53 -j ACCEPT
     ip rule del from "$HOTSPOT_SUBNET" table "$TABLE_ID" priority "$RULE_PRIORITY" 2>/dev/null || true
+    ip -6 rule del from "$HOTSPOT_IPV6_SUBNET" table "$TABLE_ID" priority "$RULE_PRIORITY" 2>/dev/null || true
     ip rule del fwmark "$FWMARK" table "$TABLE_ID" priority "$HOST_RULE_PRIORITY" 2>/dev/null || true
     ip rule del fwmark "$BYPASS_FWMARK" table main priority "$BYPASS_RULE_PRIORITY" 2>/dev/null || true
     for subnet in $MANAGEMENT_SUBNETS; do
         ip rule del from "$HOTSPOT_SUBNET" to "$subnet" table main priority "$MANAGEMENT_RULE_PRIORITY" 2>/dev/null || true
     done
     ip route flush table "$TABLE_ID" 2>/dev/null || true
+    ip -6 route flush table "$TABLE_ID" 2>/dev/null || true
 }
 
 case "$2" in
