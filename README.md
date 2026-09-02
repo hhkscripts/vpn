@@ -6,13 +6,13 @@ GoodWifi is a Raspberry Pi Wi-Fi hotspot that sends connected client traffic thr
 
 Traffic is intentionally split:
 
-- GoodWifi clients: `10.42.0.0/24` and `fd42:42:42:42::/64 -> wlan0 -> tun0 -> VPN/VPS`
+- GoodWifi clients: `10.42.0.0/24 -> wlan0 -> tun0 -> VPN/VPS`
 - GoodWifi management access: selected local/VPN management subnets stay on the Pi's main routes instead of the VPN-only client table
 - Pi host traffic: `eth0 -> <LAN gateway> -> ISP router`
 - Docker workloads: normal host/Docker routes, not forced through the hotspot VPN
 - GitHub host traffic: selected GitHub IPv4 ranges can be marked into the VPN when the ISP blocks GitHub
 - Binance client traffic: Binance DNS answers are placed in `local_bypass_domains` and routed through `eth0`, so Binance P2P sees the normal Myanmar ISP public IP instead of the VPN exit IP
-- DNS for GoodWifi clients: `10.42.0.1:53` and `[fd42:42:42:42::1]:53` handled by AdGuard Home
+- DNS for GoodWifi clients: `10.42.0.1:53` handled by AdGuard Home
 - DHCP for GoodWifi clients: `dnsmasq` on `wlan0`, assigning `10.42.0.10` to `10.42.0.100`
 
 ## Do Not Force The Host Default Route
@@ -375,7 +375,7 @@ Expected:
 -A GOODWIFI_FORWARD -d 10.42.0.0/24 -i tun0 -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT
 ```
 
-IPv6 forwarding from GoodWifi is restricted to the VPN to prevent leaks:
+IPv6 forwarding from GoodWifi is blocked to prevent VPN leaks:
 
 ```bash
 sudo ip6tables -S GOODWIFI6_FORWARD
@@ -384,29 +384,7 @@ sudo ip6tables -S GOODWIFI6_FORWARD
 Expected:
 
 ```text
--A GOODWIFI6_FORWARD -s fd42:42:42:42::/64 -i wlan0 -o tun0 -j ACCEPT
--A GOODWIFI6_FORWARD -d fd42:42:42:42::/64 -i tun0 -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT
 -A GOODWIFI6_FORWARD -i wlan0 -j DROP
-```
-
-IPv6 uses the same leak-control model as IPv4. Hotspot clients receive
-addresses from `fd42:42:42:42::/64`, policy routing sends that source prefix to
-table `100`, and `ip6tables` masquerades it on `tun0`. Any other IPv6 forwarded
-from `wlan0` is dropped, so if the OpenVPN tunnel has no IPv6 internet route,
-clients fail closed instead of falling back to `eth0`.
-
-Verify the VPN tunnel has IPv6 before expecting clients to pass IPv6 leak tests:
-
-```bash
-ip -6 route get 2606:4700:4700::1111
-curl -6 https://ifconfig.co
-ip -6 route get 2606:4700:4700::1111 from fd42:42:42:42::10 iif wlan0
-```
-
-Expected client policy route:
-
-```text
-2606:4700:4700::1111 from fd42:42:42:42::10 dev tun0 table 100
 ```
 
 ## Troubleshooting
