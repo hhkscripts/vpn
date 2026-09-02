@@ -4,7 +4,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-
 MODULE_PATH = Path(__file__).parents[1] / "scripts" / "hotspot-manager.py"
 SPEC = importlib.util.spec_from_file_location("hotspot_manager", MODULE_PATH)
 assert SPEC and SPEC.loader
