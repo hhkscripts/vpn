@@ -20,13 +20,18 @@ jobs:
           python -m pip install black flake8
 
       - name: ShellCheck
-        run: shellcheck setup.sh uninstall.sh configs/20-hotspot-manager configs/90-hotspot-vpn-policy scripts/vpn-routing.sh scripts/github-runner-pull.sh scripts/auto-commit.sh tests/test-auto-commit.sh
+        run: shellcheck setup.sh uninstall.sh configs/20-hotspot-manager configs/90-hotspot-vpn-policy scripts/vpn-routing.sh scripts/github-vpn-routes.sh scripts/github-runner-pull.sh scripts/auto-commit.sh tests/test-auto-commit.sh tests/test-vpn-scripts.sh
 
       - name: Auto-commit integration tests
         run: tests/test-auto-commit.sh
 
+      - name: VPN restart regression tests
+        run: |
+          python -m unittest -v tests/test_hotspot_manager.py
+          tests/test-vpn-scripts.sh
+
       - name: Black check
-        run: black --check scripts/hotspot-manager.py
+        run: black --check scripts/hotspot-manager.py tests/test_hotspot_manager.py
 
       - name: Flake8
-        run: flake8 --max-line-length=88 --extend-ignore=E203 scripts/hotspot-manager.py
+        run: flake8 --max-line-length=88 --extend-ignore=E203 scripts/hotspot-manager.py tests/test_hotspot_manager.py

@@ -87,10 +87,10 @@ def log(msg: str, level: str = "INFO") -> None:
     print(msg)
 
 
-def run_args(cmd: Sequence[str]) -> tuple[bool, str, str]:
+def run_args(cmd: Sequence[str], timeout: int = 30) -> tuple[bool, str, str]:
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=30, check=False
+            cmd, capture_output=True, text=True, timeout=timeout, check=False
         )
         return result.returncode == 0, result.stdout.strip(), result.stderr.strip()
     except Exception as exc:
@@ -251,20 +251,31 @@ def restart_vpn() -> bool:
         log("Restarting VPN connection...")
     else:
         log("VPN not connected, connecting...")
-    run_args(["sudo", "nmcli", "connection", "down", CONFIG["vpn_name"]])
+    run_args(["sudo", "nmcli", "connection", "down", CONFIG["vpn_name"]], timeout=20)
     time.sleep(2)
-    ok, out, err = run_args(["sudo", "nmcli", "connection", "up", CONFIG["vpn_name"]])
-    if ok:
-        log("VPN connected", "SUCCESS")
-        if not wait_for_interface("tun0"):
-            log("VPN interface tun0 did not become available", "ERROR")
-            return False
-        ok = apply_vpn_policy()
-        refresh_github_routes()
-    else:
-        detail = err or out or "unknown error"
-        log(f"VPN connect failed: {detail}", "ERROR")
-    return ok
+    last_error = "unknown error"
+    for attempt in range(1, 3):
+        ok, out, err = run_args(
+            ["sudo", "nmcli", "connection", "up", CONFIG["vpn_name"]],
+            timeout=70,
+        )
+        if (ok or check_vpn()) and wait_for_interface("tun0", timeout=15):
+            log("VPN connected", "SUCCESS")
+            policy_ok = apply_vpn_policy()
+            refresh_github_routes()
+            return policy_ok
+
+        last_error = err or out or "VPN interface did not become available"
+        if attempt < 2:
+            log(f"VPN activation attempt {attempt} failed; retrying...", "WARN")
+            run_args(
+                ["sudo", "nmcli", "connection", "down", CONFIG["vpn_name"]],
+                timeout=20,
+            )
+            time.sleep(3)
+
+    log(f"VPN connect failed after 2 attempts: {last_error}", "ERROR")
+    return False
 
 
 def refresh_github_routes() -> None:
@@ -272,7 +283,7 @@ def refresh_github_routes() -> None:
     if not ok:
         return
 
-    ok, _, err = run_args(["sudo", GITHUB_ROUTE_SCRIPT])
+    ok, _, err = run_args(["sudo", GITHUB_ROUTE_SCRIPT], timeout=120)
     if not ok:
         detail = f": {err}" if err else ""
         log(f"GitHub route refresh failed{detail}", "WARN")

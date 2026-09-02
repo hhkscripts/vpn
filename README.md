@@ -253,6 +253,14 @@ sudo github-vpn-routes.sh
 
 `github-vpn-routes.sh` fetches `https://api.github.com/meta` through `tun0`, extracts GitHub IPv4 ranges, loads them into `github_vpn_routes`, and saves netfilter state. The dispatcher marks matching host traffic with fwmark `100`, then sends it to table `100`, whose default route is `tun0`.
 
+Normal VPN restarts keep an existing non-empty GitHub route set, avoiding a
+large metadata download while the tunnel is still settling. Force a fresh
+download when needed:
+
+```bash
+sudo GITHUB_ROUTES_FORCE_REFRESH=1 github-vpn-routes.sh
+```
+
 Verify:
 
 ```bash

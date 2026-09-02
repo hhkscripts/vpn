@@ -8,8 +8,8 @@ set -euo pipefail
 
 VPN_IF="${VPN_IF:-tun0}"
 GITHUB_IPSET="${GITHUB_IPSET:-github_vpn_routes}"
-POLICY_SCRIPT="${POLICY_SCRIPT:-/etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy}"
 META_URL="${GITHUB_META_URL:-https://api.github.com/meta}"
+FORCE_REFRESH="${GITHUB_ROUTES_FORCE_REFRESH:-0}"
 
 log() {
     printf '%s\n' "$1"
@@ -37,8 +37,16 @@ if ! ip link show "$VPN_IF" >/dev/null 2>&1; then
     exit 1
 fi
 
-if [ -x "$POLICY_SCRIPT" ]; then
-    "$POLICY_SCRIPT" "$VPN_IF" up
+existing_count=0
+if ipset list "$GITHUB_IPSET" >/dev/null 2>&1; then
+    existing_count="$(ipset list "$GITHUB_IPSET" | awk '/Number of entries:/ {print $4; exit}')"
+    existing_count="${existing_count:-0}"
+fi
+
+if [ "$existing_count" -gt 0 ] && [ "$FORCE_REFRESH" != "1" ]; then
+    log "Keeping existing GitHub IPv4 ranges ($existing_count entries)."
+    log "Use GITHUB_ROUTES_FORCE_REFRESH=1 to download fresh ranges."
+    exit 0
 fi
 
 tmp_json="$(mktemp)"
@@ -46,7 +54,8 @@ tmp_ranges="$(mktemp)"
 trap 'rm -f "$tmp_json" "$tmp_ranges"' EXIT
 
 log "Fetching GitHub meta ranges through $VPN_IF..."
-curl -fsS --interface "$VPN_IF" --max-time 20 "$META_URL" -o "$tmp_json"
+curl -fsS --interface "$VPN_IF" --connect-timeout 10 --max-time 60 \
+    --retry 3 --retry-delay 2 --retry-all-errors "$META_URL" -o "$tmp_json"
 
 python3 - "$tmp_json" > "$tmp_ranges" <<'PY'
 import ipaddress

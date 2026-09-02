@@ -19,6 +19,13 @@ IPTABLES_CHAIN="GOODWIFI_FORWARD"
 IP6TABLES_CHAIN="GOODWIFI6_FORWARD"
 MANAGEMENT_SUBNETS="${MANAGEMENT_SUBNETS:-10.8.0.0/24 192.168.100.0/24 192.168.1.0/24}"
 
+mkdir -p /run/lock
+exec 9>/run/lock/goodwifi-vpn-policy.lock
+if ! flock -w 60 9; then
+    echo "Timed out waiting for the GoodWifi VPN policy lock" >&2
+    exit 1
+fi
+
 remove_rule() {
     table="$1"
     shift
@@ -227,8 +234,6 @@ case "$2" in
     up|vpn-up|connectivity-change)
         if ip link show "$VPN_IF" >/dev/null 2>&1; then
             apply_policy
-            ( sleep 5; apply_policy ) &
-            ( sleep 15; apply_policy ) &
         fi
         ;;
 esac
