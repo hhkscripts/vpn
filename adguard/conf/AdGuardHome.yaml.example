@@ -12,3 +12,14 @@ dns:
   ipset:
     - github.com,githubusercontent.com,actions.githubusercontent.com/vpn_domains
     - binance.com,binance.me,binance.info,binance.org,bnbstatic.com,bntrace.com/local_bypass_domains
+
+# The default AdGuard DNS filter blocks Google Analytics and several Google Ads
+# endpoints required by the Analytics and AdMob management dashboards.  Keep
+# the main filter enabled, but allow the dashboard/tracking endpoints below.
+user_rules:
+  - '@@||analytics.google.com^'
+  - '@@||google-analytics.com^'
+  - '@@||ogads-pa.clients6.google.com^'
+  - '@@||googleads.g.doubleclick.net^'
+  - '@@||pagead2.googlesyndication.com^'
+  - '@@||adservice.google.com^'

@@ -196,6 +196,11 @@ GoodWifi expects these DNS-to-ipset mappings:
 - GitHub domains -> `vpn_domains`
 - Binance domains -> `local_bypass_domains`
 
+The default AdGuard DNS filter blocks endpoints used by the Google Analytics
+and Google AdMob dashboards. Merge the `user_rules` allowlist from
+`adguard/conf/AdGuardHome.yaml.example` into the live configuration to keep
+filtering enabled while allowing those dashboards and Analytics collection.
+
 Restart AdGuard Home after changing its config:
 
 ```bash
@@ -207,6 +212,7 @@ Verify DNS:
 
 ```bash
 nslookup google.com 10.42.0.1
+nslookup analytics.google.com 10.42.0.1
 docker logs --tail=80 adguardhome
 sudo ipset list vpn_domains
 sudo ipset list local_bypass_domains
