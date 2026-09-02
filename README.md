@@ -168,6 +168,27 @@ hf
 
 `hotspot --restart-vpn` also refreshes GitHub host routes when `/usr/local/bin/github-vpn-routes.sh` is installed.
 
+## Safe On-Demand Auto-Commit
+
+Use the helper after an automated edit or generation step:
+
+```bash
+cd ~/Projects/vpn
+scripts/auto-commit.sh "chore: update generated VPN files"
+```
+
+The helper stages tracked and untracked non-ignored files, compares the staged
+content with `HEAD`, and only creates a commit when the content actually
+changed. If files were rewritten with identical content, it exits successfully
+with `No content changes to commit` instead of creating an empty commit or
+failing. Real changes are rebased onto and pushed to the current branch.
+
+To test the commit locally without pushing:
+
+```bash
+AUTO_COMMIT_PUSH=0 scripts/auto-commit.sh "test: local auto-commit"
+```
+
 ## AdGuard Home DNS And Ipsets
 
 GoodWifi clients receive `10.42.0.1` as DNS. AdGuard Home runs on the host network and listens directly on the Pi's port `53`.
