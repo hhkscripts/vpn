@@ -108,6 +108,7 @@ apply_policy() {
 
     remove_rule mangle OUTPUT -m set --match-set "$VPN_IPSET" dst -j MARK --set-mark "$FWMARK"
     remove_rule mangle OUTPUT -m set --match-set "$GITHUB_IPSET" dst -j MARK --set-mark "$FWMARK"
+    remove_rule mangle OUTPUT -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200
     remove_rule filter FORWARD -i wlan0 -o "$VPN_IF" -s "$HOTSPOT_SUBNET" -j ACCEPT
     remove_rule filter FORWARD -i "$VPN_IF" -o wlan0 -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
     remove_rule filter FORWARD -i wlan0 -o "$LAN_IF" -j ACCEPT
@@ -162,6 +163,8 @@ apply_policy() {
         iptables -t mangle -A OUTPUT -m set --match-set "$VPN_IPSET" dst -j MARK --set-mark "$FWMARK"
     iptables -t mangle -C OUTPUT -m set --match-set "$GITHUB_IPSET" dst -j MARK --set-mark "$FWMARK" 2>/dev/null || \
         iptables -t mangle -A OUTPUT -m set --match-set "$GITHUB_IPSET" dst -j MARK --set-mark "$FWMARK"
+    iptables -t mangle -C OUTPUT -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200 2>/dev/null || \
+        iptables -t mangle -A OUTPUT -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200
     iptables -A "$IPTABLES_CHAIN" -i wlan0 -o "$LAN_IF" -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j ACCEPT
     iptables -A "$IPTABLES_CHAIN" -i "$LAN_IF" -o wlan0 -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
     for subnet in $MANAGEMENT_SUBNETS; do
@@ -196,6 +199,7 @@ cleanup_policy() {
     remove_rule nat POSTROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -o "$LAN_IF" -j MASQUERADE
     remove_rule mangle OUTPUT -m set --match-set "$VPN_IPSET" dst -j MARK --set-mark "$FWMARK"
     remove_rule mangle OUTPUT -m set --match-set "$GITHUB_IPSET" dst -j MARK --set-mark "$FWMARK"
+    remove_rule mangle OUTPUT -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200
     remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j MARK --set-mark "$BYPASS_FWMARK"
     remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j MARK --set-mark 0
     remove_rule mangle FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200
