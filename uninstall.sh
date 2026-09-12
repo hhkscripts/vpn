@@ -56,6 +56,9 @@ else
   echo "No backup/system-* directory found; removing managed files and blocks only."
 fi
 
+# Validate and restore OpenVPN before making any other uninstall changes.
+sudo "$PROJECT_DIR/scripts/openvpn-diversion.sh" remove "$PROJECT_DIR/scripts/openvpn-replay-wrapper"
+
 sudo systemctl stop hostapd dnsmasq 2>/dev/null || true
 sudo systemctl disable hostapd dnsmasq 2>/dev/null || true
 sudo systemctl stop wpa_supplicant 2>/dev/null || true

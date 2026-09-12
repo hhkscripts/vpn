@@ -1,0 +1,11 @@
+#!/bin/sh
+# Keep anti-replay enabled while tolerating the measured UDP reordering.
+# OpenVPN uses the last occurrence of an option, so append the enforced value.
+# Its one-argument positional config shorthand must be expanded before adding it.
+if [ "$#" -eq 1 ]; then
+    case "$1" in
+        -*) ;;
+        *) exec /usr/sbin/openvpn.real --config "$1" --replay-window 8192 60 ;;
+    esac
+fi
+exec /usr/sbin/openvpn.real "$@" --replay-window 8192 60

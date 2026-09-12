@@ -3,6 +3,7 @@
 
 HOTSPOT_SUBNET="10.42.0.0/24"
 VPN_IF="tun0"
+VPN_MTU="${VPN_MTU:-1400}"
 LAN_IF="eth0"
 LAN_GW_OVERRIDE="${LAN_GW:-}"
 TABLE_ID="100"
@@ -100,6 +101,12 @@ apply_policy() {
     LAN_GW="$(detect_lan_gw | awk 'NF {print; exit}')"
 
     echo 1 > /proc/sys/net/ipv4/ip_forward
+    if ip link show "$VPN_IF" >/dev/null 2>&1; then
+        if ! ip link set dev "$VPN_IF" mtu "$VPN_MTU"; then
+            echo "Could not set $VPN_IF MTU to $VPN_MTU" >&2
+            return 1
+        fi
+    fi
     ipset create "$VPN_IPSET" hash:ip 2>/dev/null || true
     ipset create "$GITHUB_IPSET" hash:net family inet 2>/dev/null || true
     ipset create "$LOCAL_BYPASS_IPSET" hash:ip 2>/dev/null || true

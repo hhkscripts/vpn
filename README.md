@@ -52,6 +52,8 @@ If an old script forces the main default route to `tun0`, the Pi may lose stable
 - `configs/90-hotspot-vpn-policy`: installed dispatcher policy
 - `scripts/vpn-routing.sh`: editable mirror of the dispatcher policy
 - `scripts/github-vpn-routes.sh`: loads GitHub IPv4 ranges into `github_vpn_routes`
+- `scripts/openvpn-replay-wrapper`: retains replay protection with an `8192`-packet, `60`-second window for heavily reordered UDP paths
+- `scripts/openvpn-diversion.sh`: safely installs and removes the OpenVPN wrapper diversion
 - `scripts/hotspot-manager.py`: status, restart, and fix CLI
 - `telegrambot/`: optional Telegram remote control
 
@@ -418,6 +420,28 @@ Expected:
 
 ## Troubleshooting
 
+The dispatcher sets MTU `1400` when `tun0` exists; when it does not, the MTU step is skipped safely. TCP forwarding continues to use the existing path-MTU MSS clamp. Setup does not mutate the NetworkManager VPN profile.
+
+The setup also installs a larger anti-replay window with Debian's `dpkg-divert`: the package-owned executable remains at `/usr/sbin/openvpn.real`, while `/usr/sbin/openvpn` adds `--replay-window 8192 60`. Replay protection remains enabled. Setup is idempotent only for the exact local diversion and repository wrapper; it requires both installed files to be owned by `root:root` and refuses stale, conflicting, or unrecognized states instead of overwriting them. Install and removal are serialized with `/run/lock/goodwifi-openvpn-diversion.lock`. `uninstall.sh` validates and removes this diversion before changing any other system state, then restores the package executable.
+
+If setup or uninstall reports a diversion error, do not delete or rename either executable and do not use `dpkg-divert --remove` manually. Capture the state first:
+
+```bash
+sudo dpkg-divert --list /usr/sbin/openvpn
+sudo stat -c '%U:%G %a %n' /usr/sbin/openvpn /usr/sbin/openvpn.real
+sudo cmp --silent scripts/openvpn-replay-wrapper /usr/sbin/openvpn \
+  && echo 'managed wrapper matches' || echo 'wrapper differs or is missing'
+```
+
+An empty registration together with a matching `/usr/sbin/openvpn` wrapper or any `/usr/sbin/openvpn.real` is intentionally treated as stale and requires administrator recovery. Preserve both files and the command output before repairing package state. For an exact registered diversion, correct unexpected ownership only after verifying file contents and provenance, then rerun setup or uninstall. If rollback itself fails, leave both paths untouched and recover OpenVPN with the Debian package tools from a separate management connection; the script will not claim success for a partial restoration.
+
+Check the active values:
+
+```bash
+ip -o link show tun0
+pgrep -af '^/usr/sbin/openvpn.real '
+```
+
 Check overall status:
 
 ```bash
@@ -481,6 +505,8 @@ Expected permission starts with `-rw-`, not `-rwx`.
 configs/90-hotspot-vpn-policy
 scripts/vpn-routing.sh
 scripts/github-vpn-routes.sh
+scripts/openvpn-replay-wrapper
+scripts/openvpn-diversion.sh
 scripts/hotspot-manager.py
 adguard/docker-compose.yml
 adguard/conf/AdGuardHome.yaml.example
@@ -496,6 +522,8 @@ Installed live files:
 /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy
 /usr/local/bin/hotspot-manager.py
 /usr/local/bin/github-vpn-routes.sh
+/usr/sbin/openvpn
+/usr/sbin/openvpn.real
 ```
 
 ## Uninstall

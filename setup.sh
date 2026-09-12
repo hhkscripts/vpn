@@ -29,6 +29,8 @@ required_files=(
   "$CONFIG_DIR/90-hotspot-vpn-policy"
   "$SCRIPT_DIR/hotspot-manager.py"
   "$SCRIPT_DIR/github-vpn-routes.sh"
+  "$SCRIPT_DIR/openvpn-replay-wrapper"
+  "$SCRIPT_DIR/openvpn-diversion.sh"
 )
 
 backup_file() {
@@ -196,11 +198,15 @@ for file in "${required_files[@]}"; do
   fi
 done
 
+log_info "Validating and installing the OpenVPN replay-window wrapper"
+sudo "$SCRIPT_DIR/openvpn-diversion.sh" check "$SCRIPT_DIR/openvpn-replay-wrapper"
+sudo "$SCRIPT_DIR/openvpn-diversion.sh" install "$SCRIPT_DIR/openvpn-replay-wrapper"
+
 configure_hotspot_credentials
 
 log_info "Installing required packages"
 sudo apt update
-sudo apt install -y hostapd dnsmasq ipset ipset-persistent iptables-persistent netfilter-persistent python3 python3-pip curl wget
+sudo apt install -y hostapd dnsmasq ipset ipset-persistent iptables-persistent netfilter-persistent python3 python3-pip curl wget util-linux
 
 log_info "Installing config files from configs/"
 copy_file "$GENERATED_HOSTAPD_CONF" /etc/hostapd/hostapd.conf 0644
