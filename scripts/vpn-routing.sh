@@ -130,6 +130,15 @@ detect_lan_gw() {
 apply_policy() {
     LAN_GW="$(detect_lan_gw | awk 'NF {print; exit}')"
 
+    # Purge any WireGuard / AmneziaWG auto-routing rules that conflict with policy routing
+    while ip -4 rule show 2>/dev/null | grep -q "lookup 51820"; do
+        ip -4 rule del table 51820 2>/dev/null || break
+    done
+    while ip -4 rule show 2>/dev/null | grep -q "from all lookup main suppress_prefixlength 0"; do
+        ip -4 rule del table main suppress_prefixlength 0 2>/dev/null || break
+    done
+    ip -4 route flush table 51820 2>/dev/null || true
+
     echo 1 > /proc/sys/net/ipv4/ip_forward
     if ip link show "$VPN_IF" >/dev/null 2>&1; then
         if ! ip link set dev "$VPN_IF" mtu "$VPN_MTU"; then
@@ -227,6 +236,16 @@ apply_policy() {
         iptables -A INPUT -i wlan0 -p tcp --dport 53 -j ACCEPT
     iptables -C INPUT -i wlan0 -p udp --dport 53 -j ACCEPT 2>/dev/null || \
         iptables -A INPUT -i wlan0 -p udp --dport 53 -j ACCEPT
+
+    # Force all client DNS (port 53) to AdGuard Home (10.42.0.1:53)
+    iptables -t nat -C PREROUTING -i wlan0 -p udp --dport 53 ! -d 10.42.0.1 -j DNAT --to-destination 10.42.0.1:53 2>/dev/null || \
+        iptables -t nat -A PREROUTING -i wlan0 -p udp --dport 53 ! -d 10.42.0.1 -j DNAT --to-destination 10.42.0.1:53
+    iptables -t nat -C PREROUTING -i wlan0 -p tcp --dport 53 ! -d 10.42.0.1 -j DNAT --to-destination 10.42.0.1:53 2>/dev/null || \
+        iptables -t nat -A PREROUTING -i wlan0 -p tcp --dport 53 ! -d 10.42.0.1 -j DNAT --to-destination 10.42.0.1:53
+
+    # Reject DNS-over-TLS (port 853) so client devices fall back to standard DNS (AdGuard Home)
+    iptables -C "$IPTABLES_CHAIN" -i wlan0 -p tcp --dport 853 -j REJECT 2>/dev/null || \
+        iptables -A "$IPTABLES_CHAIN" -i wlan0 -p tcp --dport 853 -j REJECT
 
     ip6tables -A "$IP6TABLES_CHAIN" -i wlan0 -j DROP
 }
