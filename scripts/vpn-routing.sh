@@ -2,8 +2,6 @@
 # Keep Pi host traffic on eth0 while routing hotspot clients through the VPN.
 
 HOTSPOT_SUBNET="10.42.0.0/24"
-VPN_IF="tun0"
-VPN_MTU="${VPN_MTU:-1400}"
 LAN_IF="eth0"
 LAN_GW_OVERRIDE="${LAN_GW:-}"
 TABLE_ID="100"
@@ -19,6 +17,38 @@ LOCAL_BYPASS_IPSET="local_bypass_domains"
 IPTABLES_CHAIN="GOODWIFI_FORWARD"
 IP6TABLES_CHAIN="GOODWIFI6_FORWARD"
 MANAGEMENT_SUBNETS="${MANAGEMENT_SUBNETS:-10.8.0.0/24 192.168.100.0/24 192.168.1.0/24}"
+
+# Load optional config override if present
+[ -f /etc/goodwifi/goodwifi.conf ] && . /etc/goodwifi/goodwifi.conf
+VPN_BACKEND="${VPN_BACKEND:-auto}"
+
+# Determine VPN_IF dynamically or from argument
+if [ -n "$1" ] && [ "$1" != "apply" ] && [ "$1" != "cleanup" ] && [ "$1" != "up" ] && [ "$1" != "down" ] && [ "$1" != "vpn-up" ] && [ "$1" != "vpn-down" ] && [ "$1" != "connectivity-change" ]; then
+    VPN_IF="$1"
+elif [ "$VPN_BACKEND" = "awg0" ]; then
+    VPN_IF="awg0"
+elif [ "$VPN_BACKEND" = "wg0" ]; then
+    VPN_IF="wg0"
+elif [ "$VPN_BACKEND" = "tun0" ]; then
+    VPN_IF="tun0"
+else
+    # auto mode: prioritize active interfaces with an IPv4 address
+    if ip -4 addr show awg0 2>/dev/null | grep -q "inet "; then
+        VPN_IF="awg0"
+    elif ip -4 addr show wg0 2>/dev/null | grep -q "inet "; then
+        VPN_IF="wg0"
+    elif ip -4 addr show tun0 2>/dev/null | grep -q "inet "; then
+        VPN_IF="tun0"
+    elif ip link show awg0 >/dev/null 2>&1; then
+        VPN_IF="awg0"
+    elif ip link show wg0 >/dev/null 2>&1; then
+        VPN_IF="wg0"
+    else
+        VPN_IF="tun0"
+    fi
+fi
+
+VPN_MTU="${VPN_MTU:-1400}"
 
 mkdir -p /run/lock
 exec 9>/run/lock/goodwifi-vpn-policy.lock

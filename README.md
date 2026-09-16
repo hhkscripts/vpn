@@ -1,12 +1,12 @@
 # Raspberry Pi VPN Hotspot
 
-GoodWifi is a Raspberry Pi Wi-Fi hotspot that sends connected client traffic through an OpenVPN tunnel while keeping the Pi host, Docker workloads, and local services on the normal Ethernet route.
+GoodWifi is a Raspberry Pi Wi-Fi hotspot that sends connected client traffic through an encrypted VPN tunnel (supporting AmneziaWG, WireGuard, and OpenVPN) while keeping the Pi host, Docker workloads, and local services on the normal Ethernet route.
 
 ## Routing Design
 
 Traffic is intentionally split:
 
-- GoodWifi clients: `10.42.0.0/24 -> wlan0 -> tun0 -> VPN/VPS`
+- GoodWifi clients: `10.42.0.0/24 -> wlan0 -> VPN (awg0 / tun0) -> VPS`
 - GoodWifi management access: selected local/VPN management subnets stay on the Pi's main routes instead of the VPN-only client table
 - Pi host traffic: `eth0 -> <LAN gateway> -> ISP router`
 - Docker workloads: normal host/Docker routes, not forced through the hotspot VPN
@@ -134,7 +134,7 @@ sudo /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy tun0 apply
 Default template values:
 
 - SSID: `GoodWifi`
-- Password: `ChangeMeDuringSetup`
+- Password: `GoodPassword`
 
 Run setup and enter new values when prompted:
 
@@ -147,6 +147,51 @@ For unattended setup:
 ```bash
 HOTSPOT_SSID="MyWifi" HOTSPOT_PASSWORD="change-this-password" ./setup.sh
 ```
+
+## Multi-Backend VPN Support (AmneziaWG & OpenVPN)
+
+GoodWifi supports multiple VPN backends for flexibility and anti-censorship:
+
+- **AmneziaWG (`awg0`)**: Recommended for regions with Deep Packet Inspection (DPI) or censorship. Provides high performance, low latency, and protocol obfuscation.
+- **OpenVPN (`tun0`)**: Traditional OpenVPN tunnel managed by NetworkManager (`nmcli connection up pi`).
+- **WireGuard (`wg0`)**: Standard WireGuard tunnel.
+
+### AmneziaWG / WireGuard Configuration
+
+To ensure AmneziaWG or WireGuard does not hijack the Raspberry Pi's main routing table on `eth0`, you must add `Table = off` under `[Interface]` in your configuration (e.g. `/etc/amnezia/amneziawg/awg0.conf`):
+
+```ini
+[Interface]
+Address = 10.8.0.2/24
+PrivateKey = ...
+DNS = 1.1.1.1
+Table = off          # Prevents hijacking Pi host default routes
+Jc = 4
+...
+```
+
+### Switching VPN Backends via CLI
+
+```bash
+# Check current active backend and IP
+hotspot --status
+
+# Switch to AmneziaWG
+hotspot --switch-vpn awg0
+
+# Switch to OpenVPN
+hotspot --switch-vpn tun0
+
+# Set back to auto-failover (prefers awg0, falls back to tun0)
+hotspot --switch-vpn auto
+```
+
+### Switching via Telegram Bot
+
+The Telegram bot includes dynamic **Inline Keyboard Buttons** under `/status`:
+- When running on `awg0`: displays a `[ 🔄 Switch to OpenVPN (tun0) ]` button.
+- When running on `tun0`: displays a `[ ⚡ Switch to AmneziaWG (awg0) ]` button.
+- You can also send `/switch_vpn awg0` or `/switch_vpn tun0` directly as text commands.
 
 ## Daily Commands
 

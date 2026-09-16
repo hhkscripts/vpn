@@ -4,13 +4,14 @@ Raspberry Pi Hotspot Manager - Smart Monitoring
 """
 
 import argparse
-import os
+import html
 import re
 import subprocess
+import os
 import sys
 import time
 from datetime import datetime
-from typing import Optional, Sequence, TypedDict, List
+from typing import Optional, Sequence, TypedDict
 
 
 class Config(TypedDict):
@@ -35,6 +36,8 @@ class PingStatus(TypedDict):
 
 class VpnStatus(TypedDict):
     connected: bool
+    interface: str
+    backend: str
     ip: Optional[str]
     external_ip: Optional[str]
     external_ok: bool
@@ -67,27 +70,55 @@ CONFIG: Config = {
 
 GITHUB_ROUTE_SCRIPT = "/usr/local/bin/github-vpn-routes.sh"
 POLICY_SCRIPT = "/etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy"
+GOODWIFI_CONF = "/etc/goodwifi/goodwifi.conf"
 
-CUSTOM_EMOJIS = {
-    "signal": '<tg-emoji emoji-id="6127157759872868272">📡</tg-emoji>',      # 📡 အစား
-    "tools": '<tg-emoji emoji-id="6141134446742478627">🔧</tg-emoji>',       # 🔧 အစား
-    "check": '<tg-emoji emoji-id="6114156013399579882">✅</tg-emoji>',       # ✅ အစား
-    "lock": '<tg-emoji emoji-id="6059947491695008618">🔒</tg-emoji>',        # 🔒 အစား
-    "stats": '<tg-emoji emoji-id="6143449494244563627">📶</tg-emoji>',       # 📶 အစား (📊)
-    "globe": '<tg-emoji emoji-id="6057443049020071219">🌐</tg-emoji>',       # 🌐 အစား
-    "cross": '<tg-emoji emoji-id="6111658378247806635">❌</tg-emoji>',       # ❌ အစား
-    "ping": '<tg-emoji emoji-id="6060045064762039982">⏲</tg-emoji>',        # ⏲ အစား (ping အတွက် signal emoji ကို reuse)
-}
 
-# အဆင်ပြေအောင် Short variable names ထပ်သတ်မှတ်နိုင်ပါတယ် (Optional)
-EMOJI_SIGNAL = CUSTOM_EMOJIS["signal"]
-EMOJI_TOOLS = CUSTOM_EMOJIS["tools"]
-EMOJI_CHECK = CUSTOM_EMOJIS["check"]
-EMOJI_LOCK = CUSTOM_EMOJIS["lock"]
-EMOJI_STATS = CUSTOM_EMOJIS["stats"]
-EMOJI_GLOBE = CUSTOM_EMOJIS["globe"]
-EMOJI_CROSS = CUSTOM_EMOJIS["cross"]
-EMOJI_PING = CUSTOM_EMOJIS["ping"]
+def get_configured_backend() -> str:
+    if os.path.exists(GOODWIFI_CONF):
+        try:
+            with open(GOODWIFI_CONF, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("VPN_BACKEND="):
+                        val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        if val in ["awg0", "tun0", "wg0", "auto"]:
+                            return val
+        except Exception:
+            pass
+    return "auto"
+
+
+def get_active_vpn_interface() -> tuple[str, str]:
+    """Returns (interface_name, display_name)."""
+    ok, out, _ = run_args(["ip", "route", "show", "table", "100"])
+    if ok:
+        for line in out.splitlines():
+            if line.startswith("default dev "):
+                parts = line.split()
+                if len(parts) >= 3:
+                    dev = parts[2]
+                    if dev == "awg0":
+                        return "awg0", "AmneziaWG"
+                    elif dev == "wg0":
+                        return "wg0", "WireGuard"
+                    elif dev == "tun0":
+                        return "tun0", "OpenVPN"
+
+    configured = get_configured_backend()
+    if configured in ["awg0", "wg0", "tun0"]:
+        name = "AmneziaWG" if configured == "awg0" else ("WireGuard" if configured == "wg0" else "OpenVPN")
+        return configured, name
+
+    for iface, name in [("awg0", "AmneziaWG"), ("wg0", "WireGuard"), ("tun0", "OpenVPN")]:
+        ok, out, _ = run_args(["ip", "-4", "addr", "show", iface])
+        if ok and "inet " in out:
+            return iface, name
+
+    ok, _, _ = run_args(["ip", "link", "show", "awg0"])
+    if ok:
+        return "awg0", "AmneziaWG"
+    return "tun0", "OpenVPN"
+
 
 class Colors:
     GREEN = "\033[92m"
@@ -109,8 +140,6 @@ def log(msg: str, level: str = "INFO") -> None:
 
 def run_args(cmd: Sequence[str], timeout: int = 30) -> tuple[bool, str, str]:
     try:
-        if cmd and cmd[0] == "sudo" and os.geteuid() == 0:
-            cmd = cmd[1:]
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout, check=False
         )
@@ -120,35 +149,20 @@ def run_args(cmd: Sequence[str], timeout: int = 30) -> tuple[bool, str, str]:
 
 
 def check_service(service: str) -> bool:
-    # Try systemctl first (works on host, fails in Docker chroot)
     ok, out, _ = run_args(["systemctl", "is-active", service])
-    if ok and out == "active":
-        return True
-    
-    # Fallback: Check if process is running using pgrep (works in Docker with host PID)
-    ok, out, _ = run_args(["pgrep", "-x", service])
-    if ok and out.strip():
-        return True
-    
-    # Additional fallback for dnsmasq (might run as dnsmasq not exact match)
-    if service == "dnsmasq":
-        ok, out, _ = run_args(["pgrep", "-f", "dnsmasq"])
-        if ok and out.strip():
-            return True
-    
-    # Additional fallback for hostapd
-    if service == "hostapd":
-        ok, out, _ = run_args(["pgrep", "-f", "hostapd"])
-        if ok and out.strip():
-            return True
-    
-    return False
+    return ok and out == "active"
 
 
 def check_vpn() -> bool:
-    ok, out, _ = run_args(["ip", "-4", "addr", "show", "tun0"])
+    iface, _ = get_active_vpn_interface()
+    ok, out, _ = run_args(["ip", "-4", "addr", "show", iface])
     if ok and "inet " in out:
         return True
+
+    for fallback in ["awg0", "wg0", "tun0"]:
+        ok, out, _ = run_args(["ip", "-4", "addr", "show", fallback])
+        if ok and "inet " in out:
+            return True
 
     ok, out, _ = run_args(
         [
@@ -168,45 +182,47 @@ def check_vpn() -> bool:
 
 
 def check_vpn_ip() -> tuple[bool, str]:
-    ok, out, _ = run_args(["ip", "-4", "-o", "addr", "show", "tun0"])
-    if ok:
-        for line in out.splitlines():
-            parts = line.split()
-            if "inet" in parts:
-                cidr = parts[parts.index("inet") + 1]
-                return True, cidr.split("/", 1)[0]
+    iface, _ = get_active_vpn_interface()
+    for candidate in [iface, "awg0", "wg0", "tun0"]:
+        ok, out, _ = run_args(["ip", "-4", "-o", "addr", "show", candidate])
+        if ok:
+            for line in out.splitlines():
+                parts = line.split()
+                if "inet" in parts:
+                    cidr = parts[parts.index("inet") + 1]
+                    return True, cidr.split("/", 1)[0]
     return False, "None"
 
 
 def check_vpn_external_ip() -> tuple[bool, str]:
-    ok, out, _ = run_args(
-        [
-            "curl",
-            "-4",
-            "-s",
-            "--max-time",
-            "8",
-            "--interface",
-            "tun0",
-            "https://ifconfig.me",
-        ]
-    )
-    if ok and out:
-        return True, out
+    iface, _ = get_active_vpn_interface()
+    for candidate in [iface, "awg0", "wg0", "tun0"]:
+        ok, out, _ = run_args(
+            [
+                "curl",
+                "-4",
+                "-s",
+                "--max-time",
+                "8",
+                "--interface",
+                candidate,
+                "https://ifconfig.me",
+            ]
+        )
+        if ok and out and out.strip():
+            return True, out.strip()
     return False, "None"
 
 
 def check_internet() -> bool:
-    # Try multiple targets and interfaces to ensure robustness in Docker
     targets = [CONFIG["ping_target"], "1.1.1.1", "8.8.4.4"]
+    active_if, _ = get_active_vpn_interface()
+    vpn_ok, _, _ = run_args(["ip", "-4", "addr", "show", active_if])
     for target in targets:
-        # Use -I tun0 if VPN is active, otherwise let kernel route
-        vpn_ok, _, _ = run_args(["ip", "-4", "addr", "show", "tun0"])
         if vpn_ok:
-            ok, _, _ = run_args(["ping", "-c", "2", "-W", "3", "-I", "tun0", target])
+            ok, _, _ = run_args(["ping", "-c", "2", "-W", "3", "-I", active_if, target])
         else:
             ok, _, _ = run_args(["ping", "-c", "2", "-W", "3", target])
-        
         if ok:
             return True
     return False
@@ -219,18 +235,15 @@ def check_dns() -> bool:
 
 def check_ping(target: Optional[str] = None) -> PingStatus:
     target = target or CONFIG["ping_target"]
-    
-    # Try with tun0 interface first if VPN is active, then fallback to default routing
-    vpn_ok, _, _ = run_args(["ip", "-4", "addr", "show", "tun0"])
-    
+    active_if, _ = get_active_vpn_interface()
+    vpn_ok, _, _ = run_args(["ip", "-4", "addr", "show", active_if])
     if vpn_ok:
-        ok, out, _ = run_args(["ping", "-c", "3", "-W", "2", "-I", "tun0", target])
+        ok, out, _ = run_args(["ping", "-c", "3", "-W", "2", "-I", active_if, target])
         if not ok:
-            # Fallback to default routing if tun0 ping fails
             ok, out, _ = run_args(["ping", "-c", "3", "-W", "2", target])
     else:
         ok, out, _ = run_args(["ping", "-c", "3", "-W", "2", target])
-    
+
     packet_line = "No ping result"
     rtt_line = ""
     for line in out.splitlines():
@@ -277,8 +290,10 @@ def get_hotspot_ssid() -> str:
     return CONFIG["default_hotspot_ssid"]
 
 
-def apply_vpn_policy() -> bool:
-    ok, out, err = run_args(["sudo", POLICY_SCRIPT, "tun0", "up"])
+def apply_vpn_policy(interface: Optional[str] = None) -> bool:
+    if not interface or interface == "auto":
+        interface, _ = get_active_vpn_interface()
+    ok, out, err = run_args(["sudo", POLICY_SCRIPT, interface, "apply"])
     if not ok:
         detail = err or out or "unknown error"
         log(f"VPN policy apply failed: {detail}", "ERROR")
@@ -288,7 +303,7 @@ def apply_vpn_policy() -> bool:
     rule_ok, rule_out, _ = run_args(["ip", "rule", "show"])
     policy_ok = (
         route_ok
-        and "default dev tun0" in route_out
+        and (f"default dev {interface}" in route_out or "default dev" in route_out)
         and rule_ok
         and (
             "from 10.42.0.0/24 lookup 100" in rule_out
@@ -299,6 +314,41 @@ def apply_vpn_policy() -> bool:
         log("VPN policy apply did not install GoodWifi table 100 routing", "ERROR")
         return False
     return True
+
+
+def switch_vpn(target: str) -> bool:
+    target = target.lower()
+    if target not in ["awg0", "tun0", "wg0", "auto"]:
+        log(f"Invalid target: {target}. Choose from: awg0, tun0, wg0, auto", "ERROR")
+        return False
+
+    try:
+        run_args(["sudo", "mkdir", "-p", os.path.dirname(GOODWIFI_CONF)])
+        run_args(["sudo", "sh", "-c", f'echo "VPN_BACKEND=\"{target}\"" > {GOODWIFI_CONF}'])
+    except Exception as e:
+        log(f"Could not write {GOODWIFI_CONF}: {e}", "WARN")
+
+    log(f"Switching VPN backend to {target}...")
+    if target in ["awg0", "wg0"]:
+        run_args(["sudo", "nmcli", "connection", "down", CONFIG["vpn_name"]], timeout=15)
+        svc = "awg-quick@awg0" if target == "awg0" else "wg-quick@wg0"
+        run_args(["sudo", "systemctl", "start", svc], timeout=30)
+        wait_for_interface(target, timeout=10)
+        ok = apply_vpn_policy(target)
+        refresh_github_routes()
+        return ok
+    elif target == "tun0":
+        run_args(["sudo", "systemctl", "stop", "awg-quick@awg0", "wg-quick@wg0"], timeout=15)
+        run_args(["sudo", "nmcli", "connection", "up", CONFIG["vpn_name"]], timeout=70)
+        wait_for_interface("tun0", timeout=15)
+        ok = apply_vpn_policy("tun0")
+        refresh_github_routes()
+        return ok
+    else:  # auto
+        iface, _ = get_active_vpn_interface()
+        ok = apply_vpn_policy(iface)
+        refresh_github_routes()
+        return ok
 
 
 def wait_for_interface(interface: str, timeout: int = 60) -> bool:
@@ -312,8 +362,30 @@ def wait_for_interface(interface: str, timeout: int = 60) -> bool:
 
 
 def restart_vpn() -> bool:
+    target = get_configured_backend()
+    if target == "awg0":
+        log("Restarting AmneziaWG (awg0)...")
+        run_args(["sudo", "systemctl", "restart", "awg-quick@awg0"], timeout=30)
+        if wait_for_interface("awg0", timeout=10):
+            log("AmneziaWG connected", "SUCCESS")
+            policy_ok = apply_vpn_policy("awg0")
+            refresh_github_routes()
+            return policy_ok
+        log("AmneziaWG restart failed", "ERROR")
+        return False
+    elif target == "wg0":
+        log("Restarting WireGuard (wg0)...")
+        run_args(["sudo", "systemctl", "restart", "wg-quick@wg0"], timeout=30)
+        if wait_for_interface("wg0", timeout=10):
+            log("WireGuard connected", "SUCCESS")
+            policy_ok = apply_vpn_policy("wg0")
+            refresh_github_routes()
+            return policy_ok
+        log("WireGuard restart failed", "ERROR")
+        return False
+
     if check_vpn():
-        log("Restarting VPN connection...")
+        log("Restarting OpenVPN connection...")
     else:
         log("VPN not connected, connecting...")
     run_args(["sudo", "nmcli", "connection", "down", CONFIG["vpn_name"]], timeout=20)
@@ -337,21 +409,21 @@ def restart_vpn() -> bool:
                 ["sudo", "nmcli", "connection", "down", CONFIG["vpn_name"]],
                 timeout=20,
             )
-            time.sleep(3)
+            time.sleep(2)
 
-    log(f"VPN connect failed after 2 attempts: {last_error}", "ERROR")
+    log(f"VPN activation failed: {last_error}", "ERROR")
     return False
 
 
 def refresh_github_routes() -> None:
-    ok, _, _ = run_args(["test", "-x", GITHUB_ROUTE_SCRIPT])
+    ok, _, err = run_args(["test", "-x", GITHUB_ROUTE_SCRIPT])
     if not ok:
         return
 
-    ok, out, err = run_args(["sudo", GITHUB_ROUTE_SCRIPT], timeout=120)
+    ok, _, err = run_args(["sudo", GITHUB_ROUTE_SCRIPT], timeout=120)
     if not ok:
-        detail = err or out or "unknown error"
-        log(f"GitHub route refresh failed: {detail}", "WARN")
+        detail = f": {err}" if err else ""
+        log(f"GitHub route refresh failed{detail}", "WARN")
 
 
 def fix_hotspot() -> bool:
@@ -366,6 +438,7 @@ def fix_hotspot() -> bool:
 def get_status() -> HotspotStatus:
     clients = check_clients()
     vpn_connected = check_vpn()
+    active_if, backend_name = get_active_vpn_interface()
     _vpn_ip_ok, vpn_ip = check_vpn_ip() if vpn_connected else (False, None)
     external_ok, external_ip = (
         check_vpn_external_ip() if vpn_connected else (False, None)
@@ -375,6 +448,8 @@ def get_status() -> HotspotStatus:
         "services": {s: check_service(s) for s in CONFIG["services"]},
         "vpn": {
             "connected": vpn_connected,
+            "interface": active_if,
+            "backend": backend_name,
             "ip": vpn_ip,
             "external_ip": external_ip,
             "external_ok": external_ok,
@@ -386,175 +461,137 @@ def get_status() -> HotspotStatus:
     }
 
 
-def print_status(status: HotspotStatus, telegram_format: bool = False, html_format: bool = False) -> None:
-    # Helper to format text for telegram (code blocks + spoilers) or plain terminal
-    def fmt_code(text: str) -> str:
-        if html_format:
-            return f"<code>{text}</code>"
-        return f"`{text}`" if telegram_format else text
-
-    def fmt_spoiler_code(text: str) -> str:
-        # Telegram: ||`code`|| (spoiler containing code) for Markdown
-        # HTML: <tg-spoiler><code>text</code></tg-spoiler>
-        if html_format:
-            return f"<tg-spoiler><code>{text}</code></tg-spoiler>"
-        return f"||`{text}`||" if telegram_format else text
-
-    def fmt_bold(text: str) -> str:
-        if html_format:
-            return f"<b>{text}</b>"
-        return f"*{text}*" if telegram_format else text
-
-    lines: List[str] = []
-
-    # --- Emoji Selection Logic ---
-    # Terminal mode မှာတော့ မူလ Unicode ကိုသုံးပြီး၊ Telegram/HTML မှာတော့ Custom Emoji ကိုသုံးမည်
-    if telegram_format or html_format:
-        icon_ok = EMOJI_CHECK
-        icon_fail = EMOJI_CROSS
-        icon_signal = EMOJI_SIGNAL
-        icon_tools = EMOJI_TOOLS
-        icon_lock = EMOJI_LOCK
-        icon_stats = EMOJI_STATS
-        icon_globe = EMOJI_GLOBE
-        icon_ping = EMOJI_PING
-    else:
-        icon_ok = "✅"
-        icon_fail = "❌"
-        icon_signal = "📡"
-        icon_tools = "🔧"
-        icon_lock = "🔒"
-        icon_stats = "📶"
-        icon_globe = "🌐"
-        icon_ping = "⏲"
-    # -----------------------------
-    
-    # Header - Clean UI without ASCII borders for Telegram
-    if telegram_format or html_format:
-        lines.append(fmt_bold(f"{icon_signal} HOTSPOT STATUS"))
+def print_status(status: HotspotStatus, telegram_format: bool = False) -> str:
+    if telegram_format:
+        # HTML Formatting for Telegram
+        lines = []
+        lines.append("<b>📡 HOTSPOT STATUS</b>")
         lines.append("")
-    else:
-        lines.append("\n" + "=" * 55)
-        lines.append(f"{Colors.BOLD}   HOTSPOT STATUS{Colors.RESET}")
-        lines.append("=" * 55)
 
-    # Services Section
-    if telegram_format or html_format:
-        lines.append(fmt_bold(f"{icon_tools} SERVICES:"))
-    else:
-        lines.append(f"\n{Colors.BOLD}SERVICES:{Colors.RESET}")
+        # Services
+        lines.append("<b>🔧 SERVICES:</b>")
+        for service, ok in status["services"].items():
+            icon = "✅" if ok else "❌"
+            state = "Running" if ok else "Stopped"
+            lines.append(f"{icon} <code>{service}</code>: {state}")
+        lines.append("")
 
-    for service, ok in status["services"].items():
-        icon = icon_ok if ok else icon_fail
-        state = "Running" if ok else "Stopped"
-        if telegram_format or html_format:
-            lines.append(f"{icon} {fmt_code(service)}: {state}")
+        # VPN
+        lines.append("<b>🔒 VPN:</b>")
+        vpn_connected = status["vpn"]["connected"]
+        icon = "✅" if vpn_connected else "❌"
+        backend = status["vpn"].get("backend", "VPN")
+        iface = status["vpn"].get("interface", "unknown")
+        lines.append(f"{icon} Connected: <code>{vpn_connected}</code> ({backend} / <code>{iface}</code>)")
+        if vpn_connected:
+            if status["vpn"].get("ip"):
+                ip = status["vpn"]["ip"]
+                lines.append(f"• Tunnel IP: <tg-spoiler><code>{ip}</code></tg-spoiler>")
+            if status["vpn"].get("external_ip"):
+                ext_ip = status["vpn"]["external_ip"]
+                lines.append(
+                    f"• VPN Exit IP: <tg-spoiler><code>{ext_ip}</code></tg-spoiler>"
+                )
+        lines.append("")
+
+        # Hotspot
+        lines.append("<b>📶 HOTSPOT:</b>")
+        hotspot_active = status["hotspot"]["broadcasting"]
+        icon = "✅" if hotspot_active else "❌"
+        ssid = get_hotspot_ssid()
+        lines.append(f"{icon} SSID: <code>{ssid}</code>")
+        lines.append(f"• Clients: <code>{status['hotspot']['clients']}</code>")
+        lines.append("")
+
+        # Network
+        lines.append("<b>🌐 NETWORK:</b>")
+        dns_ok = status["dns_working"]
+        internet_ok = status["internet"]
+        ping = status.get("ping", {})
+        ping_result = ping.get("summary") if ping else None
+
+        dns_status = "Working" if dns_ok else "Failed"
+        lines.append(f"{'✅' if dns_ok else '❌'} DNS: <code>{dns_status}</code>")
+        net_status = "Available" if internet_ok else "Down"
+        lines.append(
+            f"{'✅' if internet_ok else '❌'} Internet: <code>{net_status}</code>"
+        )
+
+        ping_target = (
+            ping.get("target", CONFIG["ping_target"]) if ping else CONFIG["ping_target"]
+        )
+
+        if ping_result and ping_result != "No ping result":
+            safe_ping = html.escape(ping_result)
+            ping_icon = "✅" if internet_ok else "❌"
+            lines.append(
+                f"{ping_icon} Ping <code>{ping_target}</code>: "
+                f"<tg-spoiler><code>{safe_ping}</code></tg-spoiler>"
+            )
+            # Extract RTT if available
+            if ping.get("avg_ms") and ping.get("avg_ms") != "?":
+                loss = ping.get("loss", "?")
+                lines.append(
+                    f"  └─ <code>RTT avg: {ping['avg_ms']} ms | Loss: {loss}%</code>"
+                )
         else:
-            lines.append(f"  {icon} {service:<12} {state}")
+            ping_icon = "✅" if internet_ok else "❌"
+            lines.append(
+                f"{ping_icon} Ping <code>{ping_target}</code>: "
+                f"<tg-spoiler><code>No ping result</code></tg-spoiler>"
+            )
 
-    # VPN Section
-    if telegram_format or html_format:
-        lines.append("")
-        lines.append(fmt_bold(f"{icon_lock} VPN:"))
-    else:
-        lines.append(f"\n{Colors.BOLD}VPN:{Colors.RESET}")
+        return "\n".join(lines)
 
-    icon = icon_ok if status["vpn"]["connected"] else icon_fail
-    if telegram_format or html_format:
-        lines.append(f"{icon} Connected: {fmt_code(str(status['vpn']['connected']))}")
-    else:
-        lines.append(f"  {icon} Connected: {status['vpn']['connected']}")
-        
+    # Terminal Formatting (Original)
+    output = []
+    output.append("\n" + "=" * 55)
+    output.append(f"{Colors.BOLD}   HOTSPOT STATUS{Colors.RESET}")
+    output.append("=" * 55)
+
+    output.append(f"\n{Colors.BOLD}SERVICES:{Colors.RESET}")
+    for service, ok in status["services"].items():
+        icon = "✅" if ok else "❌"
+        output.append(f"  {icon} {service:<12} {'Running' if ok else 'Stopped'}")
+
+    output.append(f"\n{Colors.BOLD}VPN:{Colors.RESET}")
+    icon = "✅" if status["vpn"]["connected"] else "❌"
+    backend = status["vpn"].get("backend", "VPN")
+    iface = status["vpn"].get("interface", "unknown")
+    output.append(f"  {icon} Connected: {status['vpn']['connected']} ({backend} - {iface})")
     if status["vpn"].get("ip"):
-        vpn_ip = status["vpn"]["ip"]
-        if vpn_ip:
-            ip_text = fmt_spoiler_code(vpn_ip)
-            if telegram_format or html_format:
-                lines.append(f"  • Tunnel IP: {ip_text}")
-            else:
-                lines.append(f"    Tunnel IP: {ip_text}")
-
+        output.append(f"    Tunnel IP: {status['vpn']['ip']}")
     if status["vpn"].get("external_ip"):
-        ext_ip = status["vpn"]["external_ip"]
-        if ext_ip:
-            exit_text = fmt_spoiler_code(ext_ip)
-            if telegram_format or html_format:
-                lines.append(f"  • VPN Exit IP: {exit_text}")
-            else:
-                lines.append(f"    VPN Exit IP: {exit_text}")
+        output.append(f"    VPN Exit IP: {status['vpn']['external_ip']}")
 
-    # Hotspot Section
-    if telegram_format or html_format:
-        lines.append("")
-        lines.append(fmt_bold(f"{icon_stats} HOTSPOT:"))
-    else:
-        lines.append(f"\n{Colors.BOLD}HOTSPOT:{Colors.RESET}")
-        
-    icon = icon_ok if status["hotspot"]["broadcasting"] else icon_fail
-    ssid = get_hotspot_ssid()
-    if telegram_format or html_format:
-        lines.append(f"{icon} SSID: {fmt_code(ssid)}")
-        lines.append(f"  • Clients: {fmt_code(str(status['hotspot']['clients']))}")
-    else:
-        lines.append(f"  {icon} SSID: {ssid}")
-        lines.append(f"    Clients: {status['hotspot']['clients']}")
+    output.append(f"\n{Colors.BOLD}HOTSPOT:{Colors.RESET}")
+    icon = "✅" if status["hotspot"]["broadcasting"] else "❌"
+    output.append(f"  {icon} SSID: {get_hotspot_ssid()}")
+    output.append(f"    Clients: {status['hotspot']['clients']}")
 
-    # Network Section
-    if telegram_format or html_format:
-        lines.append("")
-        lines.append(fmt_bold(f"{icon_globe} NETWORK:"))
-    else:
-        lines.append(f"\n{Colors.BOLD}NETWORK:{Colors.RESET}")
-        
-    dns_icon = icon_ok if status["dns_working"] else icon_fail
-    dns_state = "Working" if status["dns_working"] else "Failed"
-    if telegram_format or html_format:
-        lines.append(f"{dns_icon} DNS: {fmt_code(dns_state)}")
-    else:
-        lines.append(f"  {dns_icon} DNS: {'Working' if status['dns_working'] else 'Failed'}")
+    output.append(f"\n{Colors.BOLD}NETWORK:{Colors.RESET}")
+    dns_icon = "✅" if status["dns_working"] else "❌"
+    output.append(
+        f"  {dns_icon} DNS: {'Working' if status['dns_working'] else 'Failed'}"
+    )
 
-    internet_icon = icon_ok if status["internet"] else icon_fail
+    internet_icon = "✅" if status["internet"] else "❌"
     internet_state = "Available" if status["internet"] else "Down"
-    if telegram_format or html_format:
-        lines.append(f"{internet_icon} Internet: {fmt_code(internet_state)}")
-    else:
-        lines.append(f"  {internet_icon} Internet: {internet_state}")
+    output.append(f"  {internet_icon} Internet: {internet_state}")
 
     ping = status.get("ping", {})
-    ping_icon = icon_ping if ping.get("ok") else icon_fail
+    ping_icon = "✅" if ping.get("ok") else "❌"
     ping_target = ping.get("target", CONFIG["ping_target"])
     ping_summary = ping.get("summary", "No ping result")
-    
-    # Format ping target as code for Telegram/HTML
-    if telegram_format or html_format:
-        ping_target_display = fmt_code(ping_target)
-    else:
-        ping_target_display = ping_target
-    
-    # Format ping summary as code inside spoiler for Telegram
-    if telegram_format or html_format:
-        ping_display = fmt_spoiler_code(ping_summary)
-        lines.append(f"{ping_icon} Ping {ping_target_display}: {ping_display}")
-    else:
-        ping_display = ping_summary
-        lines.append(f"  {ping_icon} Ping {ping_target_display}: {ping_display}")
-    
+    output.append(f"  {ping_icon} Ping {ping_target}: {ping_summary}")
     if ping.get("avg_ms") and ping.get("avg_ms") != "?":
-        rtt_loss = f"RTT avg: {ping['avg_ms']} ms | Loss: {ping.get('loss', '?')}%"
-        if telegram_format or html_format:
-            rtt_loss = fmt_code(rtt_loss)
-            lines.append(f"  └─ {rtt_loss}")
-        else:
-            lines.append(f"    {rtt_loss}")
+        output.append(
+            f"    RTT avg: {ping['avg_ms']} ms | Loss: {ping.get('loss', '?')}%"
+        )
 
-    if not telegram_format and not html_format:
-        lines.append("=" * 55 + "\n")
-    else:
-        lines.append("")
-    
-    # Print to stdout
-    for line in lines:
-        print(line)
+    output.append("=" * 55 + "\n")
+
+    return "\n".join(output)
 
 
 def main() -> None:
@@ -563,17 +600,26 @@ def main() -> None:
     parser.add_argument("-r", "--restart", action="store_true")
     parser.add_argument("-rv", "--restart-vpn", action="store_true")
     parser.add_argument("-f", "--fix", action="store_true")
+    parser.add_argument("--switch-vpn", dest="switch_vpn", choices=["awg0", "tun0", "wg0", "auto"], help="Switch active VPN backend")
     parser.add_argument("--clients", action="store_true")
-    parser.add_argument("--telegram", action="store_true", help="Output formatted for Telegram (spoilers/code)")
-    parser.add_argument("--html", action="store_true", help="Output formatted as HTML for Telegram")
+    parser.add_argument(
+        "--telegram", action="store_true", help="Output in HTML format for Telegram"
+    )
 
     args = parser.parse_args()
 
     if len(sys.argv) == 1:
         args.status = True
 
+    if args.switch_vpn:
+        success = switch_vpn(args.switch_vpn)
+        output = print_status(get_status(), telegram_format=args.telegram if hasattr(args, "telegram") else (args.html if hasattr(args, "html") else False))
+        print(output)
+        sys.exit(0 if success else 1)
+
     if args.status:
-        print_status(get_status(), telegram_format=args.telegram, html_format=args.html)
+        output = print_status(get_status(), telegram_format=args.telegram)
+        print(output)
 
     if args.clients:
         print(f"Clients: {check_clients()}")
@@ -585,7 +631,8 @@ def main() -> None:
     if args.fix:
         if not fix_hotspot():
             sys.exit(1)
-        print_status(get_status())
+        output = print_status(get_status(), telegram_format=args.telegram)
+        print(output)
 
     if args.restart:
         if not fix_hotspot():

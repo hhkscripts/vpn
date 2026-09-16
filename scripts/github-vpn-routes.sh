@@ -6,7 +6,25 @@
 
 set -euo pipefail
 
-VPN_IF="${VPN_IF:-tun0}"
+# Load optional config override
+[ -f /etc/goodwifi/goodwifi.conf ] && . /etc/goodwifi/goodwifi.conf
+VPN_BACKEND="${VPN_BACKEND:-auto}"
+
+if [ -z "${VPN_IF:-}" ]; then
+    if [ "$VPN_BACKEND" = "awg0" ]; then
+        VPN_IF="awg0"
+    elif [ "$VPN_BACKEND" = "wg0" ]; then
+        VPN_IF="wg0"
+    elif [ "$VPN_BACKEND" = "tun0" ]; then
+        VPN_IF="tun0"
+    elif ip -4 addr show awg0 2>/dev/null | grep -q "inet "; then
+        VPN_IF="awg0"
+    elif ip -4 addr show wg0 2>/dev/null | grep -q "inet "; then
+        VPN_IF="wg0"
+    else
+        VPN_IF="tun0"
+    fi
+fi
 GITHUB_IPSET="${GITHUB_IPSET:-github_vpn_routes}"
 META_URL="${GITHUB_META_URL:-https://api.github.com/meta}"
 FORCE_REFRESH="${GITHUB_ROUTES_FORCE_REFRESH:-0}"
