@@ -126,10 +126,18 @@ def get_active_vpn_interface() -> tuple[str, str]:
 
     configured = get_configured_backend()
     if configured in ["awg0", "wg0", "tun0"]:
-        name = "AmneziaWG" if configured == "awg0" else ("WireGuard" if configured == "wg0" else "OpenVPN")
+        name = (
+            "AmneziaWG"
+            if configured == "awg0"
+            else ("WireGuard" if configured == "wg0" else "OpenVPN")
+        )
         return configured, name
 
-    for iface, name in [("awg0", "AmneziaWG"), ("wg0", "WireGuard"), ("tun0", "OpenVPN")]:
+    for iface, name in [
+        ("awg0", "AmneziaWG"),
+        ("wg0", "WireGuard"),
+        ("tun0", "OpenVPN"),
+    ]:
         ok, out, _ = run_args(["ip", "-4", "addr", "show", iface])
         if ok and "inet " in out:
             return iface, name
@@ -344,13 +352,17 @@ def switch_vpn(target: str) -> bool:
 
     try:
         run_args(["sudo", "mkdir", "-p", os.path.dirname(GOODWIFI_CONF)])
-        run_args(["sudo", "sh", "-c", f'echo "VPN_BACKEND=\"{target}\"" > {GOODWIFI_CONF}'])
+        run_args(
+            ["sudo", "sh", "-c", f'echo "VPN_BACKEND="{target}"" > {GOODWIFI_CONF}']
+        )
     except Exception as e:
         log(f"Could not write {GOODWIFI_CONF}: {e}", "WARN")
 
     log(f"Switching VPN backend to {target}...")
     if target in ["awg0", "wg0"]:
-        run_args(["sudo", "nmcli", "connection", "down", CONFIG["vpn_name"]], timeout=15)
+        run_args(
+            ["sudo", "nmcli", "connection", "down", CONFIG["vpn_name"]], timeout=15
+        )
         svc = "awg-quick@awg0" if target == "awg0" else "wg-quick@wg0"
         run_args(["sudo", "systemctl", "start", svc], timeout=30)
         wait_for_interface(target, timeout=10)
@@ -358,7 +370,9 @@ def switch_vpn(target: str) -> bool:
         refresh_github_routes()
         return ok
     elif target == "tun0":
-        run_args(["sudo", "systemctl", "stop", "awg-quick@awg0", "wg-quick@wg0"], timeout=15)
+        run_args(
+            ["sudo", "systemctl", "stop", "awg-quick@awg0", "wg-quick@wg0"], timeout=15
+        )
         run_args(["sudo", "nmcli", "connection", "up", CONFIG["vpn_name"]], timeout=70)
         wait_for_interface("tun0", timeout=15)
         ok = apply_vpn_policy("tun0")
@@ -502,7 +516,8 @@ def print_status(status: HotspotStatus, telegram_format: bool = False) -> str:
         icon = EMOJI_CHECK if vpn_connected else EMOJI_CROSS
         backend = status["vpn"].get("backend", "VPN")
         iface = status["vpn"].get("interface", "unknown")
-        lines.append(f"{icon} Connected: <code>{vpn_connected}</code> ({backend} / <code>{iface}</code>)")
+        conn_info = f"({backend} / <code>{iface}</code>)"
+        lines.append(f"{icon} Connected: <code>{vpn_connected}</code> {conn_info}")
         if vpn_connected:
             if status["vpn"].get("ip"):
                 ip = status["vpn"]["ip"]
@@ -535,9 +550,7 @@ def print_status(status: HotspotStatus, telegram_format: bool = False) -> str:
         lines.append(f"{dns_icon} DNS: <code>{dns_status}</code>")
         net_status = "Available" if internet_ok else "Down"
         net_icon = EMOJI_CHECK if internet_ok else EMOJI_CROSS
-        lines.append(
-            f"{net_icon} Internet: <code>{net_status}</code>"
-        )
+        lines.append(f"{net_icon} Internet: <code>{net_status}</code>")
 
         ping_target = (
             ping.get("target", CONFIG["ping_target"]) if ping else CONFIG["ping_target"]
@@ -579,7 +592,9 @@ def print_status(status: HotspotStatus, telegram_format: bool = False) -> str:
     icon = "✅" if status["vpn"]["connected"] else "❌"
     backend = status["vpn"].get("backend", "VPN")
     iface = status["vpn"].get("interface", "unknown")
-    output.append(f"  {icon} Connected: {status['vpn']['connected']} ({backend} - {iface})")
+    output.append(
+        f"  {icon} Connected: {status['vpn']['connected']} ({backend} - {iface})"
+    )
     if status["vpn"].get("ip"):
         output.append(f"    Tunnel IP: {status['vpn']['ip']}")
     if status["vpn"].get("external_ip"):
@@ -621,7 +636,12 @@ def main() -> None:
     parser.add_argument("-r", "--restart", action="store_true")
     parser.add_argument("-rv", "--restart-vpn", action="store_true")
     parser.add_argument("-f", "--fix", action="store_true")
-    parser.add_argument("--switch-vpn", dest="switch_vpn", choices=["awg0", "tun0", "wg0", "auto"], help="Switch active VPN backend")
+    parser.add_argument(
+        "--switch-vpn",
+        dest="switch_vpn",
+        choices=["awg0", "tun0", "wg0", "auto"],
+        help="Switch active VPN backend",
+    )
     parser.add_argument("--clients", action="store_true")
     parser.add_argument(
         "--telegram", action="store_true", help="Output in HTML format for Telegram"
