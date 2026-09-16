@@ -70,6 +70,26 @@ CONFIG: Config = {
 
 GITHUB_ROUTE_SCRIPT = "/usr/local/bin/github-vpn-routes.sh"
 POLICY_SCRIPT = "/etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy"
+
+CUSTOM_EMOJIS = {
+    "signal": '<tg-emoji emoji-id="6127157759872868272">📡</tg-emoji>',
+    "tools": '<tg-emoji emoji-id="6141134446742478627">🔧</tg-emoji>',
+    "check": '<tg-emoji emoji-id="6114156013399579882">✅</tg-emoji>',
+    "lock": '<tg-emoji emoji-id="6059947491695008618">🔒</tg-emoji>',
+    "stats": '<tg-emoji emoji-id="6143449494244563627">📶</tg-emoji>',
+    "globe": '<tg-emoji emoji-id="6057443049020071219">🌐</tg-emoji>',
+    "cross": '<tg-emoji emoji-id="6111658378247806635">❌</tg-emoji>',
+    "ping": '<tg-emoji emoji-id="6060045064762039982">⏲</tg-emoji>',
+}
+
+EMOJI_SIGNAL = CUSTOM_EMOJIS["signal"]
+EMOJI_TOOLS = CUSTOM_EMOJIS["tools"]
+EMOJI_CHECK = CUSTOM_EMOJIS["check"]
+EMOJI_LOCK = CUSTOM_EMOJIS["lock"]
+EMOJI_STATS = CUSTOM_EMOJIS["stats"]
+EMOJI_GLOBE = CUSTOM_EMOJIS["globe"]
+EMOJI_CROSS = CUSTOM_EMOJIS["cross"]
+EMOJI_PING = CUSTOM_EMOJIS["ping"]
 GOODWIFI_CONF = "/etc/goodwifi/goodwifi.conf"
 
 
@@ -463,23 +483,23 @@ def get_status() -> HotspotStatus:
 
 def print_status(status: HotspotStatus, telegram_format: bool = False) -> str:
     if telegram_format:
-        # HTML Formatting for Telegram
+        # HTML Formatting for Telegram with Premium Custom Emojis
         lines = []
-        lines.append("<b>📡 HOTSPOT STATUS</b>")
+        lines.append(f"<b>{EMOJI_SIGNAL} HOTSPOT STATUS</b>")
         lines.append("")
 
         # Services
-        lines.append("<b>🔧 SERVICES:</b>")
+        lines.append(f"<b>{EMOJI_TOOLS} SERVICES:</b>")
         for service, ok in status["services"].items():
-            icon = "✅" if ok else "❌"
+            icon = EMOJI_CHECK if ok else EMOJI_CROSS
             state = "Running" if ok else "Stopped"
             lines.append(f"{icon} <code>{service}</code>: {state}")
         lines.append("")
 
         # VPN
-        lines.append("<b>🔒 VPN:</b>")
+        lines.append(f"<b>{EMOJI_LOCK} VPN:</b>")
         vpn_connected = status["vpn"]["connected"]
-        icon = "✅" if vpn_connected else "❌"
+        icon = EMOJI_CHECK if vpn_connected else EMOJI_CROSS
         backend = status["vpn"].get("backend", "VPN")
         iface = status["vpn"].get("interface", "unknown")
         lines.append(f"{icon} Connected: <code>{vpn_connected}</code> ({backend} / <code>{iface}</code>)")
@@ -495,26 +515,28 @@ def print_status(status: HotspotStatus, telegram_format: bool = False) -> str:
         lines.append("")
 
         # Hotspot
-        lines.append("<b>📶 HOTSPOT:</b>")
+        lines.append(f"<b>{EMOJI_STATS} HOTSPOT:</b>")
         hotspot_active = status["hotspot"]["broadcasting"]
-        icon = "✅" if hotspot_active else "❌"
+        icon = EMOJI_CHECK if hotspot_active else EMOJI_CROSS
         ssid = get_hotspot_ssid()
         lines.append(f"{icon} SSID: <code>{ssid}</code>")
         lines.append(f"• Clients: <code>{status['hotspot']['clients']}</code>")
         lines.append("")
 
         # Network
-        lines.append("<b>🌐 NETWORK:</b>")
+        lines.append(f"<b>{EMOJI_GLOBE} NETWORK:</b>")
         dns_ok = status["dns_working"]
         internet_ok = status["internet"]
         ping = status.get("ping", {})
         ping_result = ping.get("summary") if ping else None
 
         dns_status = "Working" if dns_ok else "Failed"
-        lines.append(f"{'✅' if dns_ok else '❌'} DNS: <code>{dns_status}</code>")
+        dns_icon = EMOJI_CHECK if dns_ok else EMOJI_CROSS
+        lines.append(f"{dns_icon} DNS: <code>{dns_status}</code>")
         net_status = "Available" if internet_ok else "Down"
+        net_icon = EMOJI_CHECK if internet_ok else EMOJI_CROSS
         lines.append(
-            f"{'✅' if internet_ok else '❌'} Internet: <code>{net_status}</code>"
+            f"{net_icon} Internet: <code>{net_status}</code>"
         )
 
         ping_target = (
@@ -523,9 +545,8 @@ def print_status(status: HotspotStatus, telegram_format: bool = False) -> str:
 
         if ping_result and ping_result != "No ping result":
             safe_ping = html.escape(ping_result)
-            ping_icon = "✅" if internet_ok else "❌"
             lines.append(
-                f"{ping_icon} Ping <code>{ping_target}</code>: "
+                f"{EMOJI_PING} Ping <code>{ping_target}</code>: "
                 f"<tg-spoiler><code>{safe_ping}</code></tg-spoiler>"
             )
             # Extract RTT if available
@@ -535,7 +556,7 @@ def print_status(status: HotspotStatus, telegram_format: bool = False) -> str:
                     f"  └─ <code>RTT avg: {ping['avg_ms']} ms | Loss: {loss}%</code>"
                 )
         else:
-            ping_icon = "✅" if internet_ok else "❌"
+            ping_icon = EMOJI_CHECK if internet_ok else EMOJI_CROSS
             lines.append(
                 f"{ping_icon} Ping <code>{ping_target}</code>: "
                 f"<tg-spoiler><code>No ping result</code></tg-spoiler>"
