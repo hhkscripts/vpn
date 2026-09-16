@@ -216,6 +216,14 @@ copy_file "$CONFIG_DIR/NetworkManager.conf" /etc/NetworkManager/NetworkManager.c
 copy_file "$CONFIG_DIR/20-hotspot-manager" /etc/NetworkManager/dispatcher.d/20-hotspot-manager 0755
 copy_file "$CONFIG_DIR/90-hotspot-vpn-policy" /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy 0755
 
+log_info "Configuring GoodWifi default backend config"
+backup_file /etc/goodwifi/goodwifi.conf
+sudo mkdir -p /etc/goodwifi
+if [ ! -f /etc/goodwifi/goodwifi.conf ]; then
+  echo 'VPN_BACKEND="auto"' | sudo tee /etc/goodwifi/goodwifi.conf >/dev/null
+  sudo chmod 0644 /etc/goodwifi/goodwifi.conf
+fi
+
 log_info "Configuring dhcpcd wlan0 block"
 backup_file /etc/dhcpcd.conf
 sudo sed -i '/^# Access Point configuration for wlan0$/,/^    nohook wpa_supplicant$/d' /etc/dhcpcd.conf 2>/dev/null || true

@@ -19,6 +19,7 @@ IP6TABLES_CHAIN="GOODWIFI6_FORWARD"
 MANAGEMENT_SUBNETS="${MANAGEMENT_SUBNETS:-10.8.0.0/24 192.168.100.0/24 192.168.1.0/24}"
 
 # Load optional config override if present
+# shellcheck source=/dev/null
 [ -f /etc/goodwifi/goodwifi.conf ] && . /etc/goodwifi/goodwifi.conf
 VPN_BACKEND="${VPN_BACKEND:-auto}"
 

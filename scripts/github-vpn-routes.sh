@@ -7,6 +7,7 @@
 set -euo pipefail
 
 # Load optional config override
+# shellcheck source=/dev/null
 [ -f /etc/goodwifi/goodwifi.conf ] && . /etc/goodwifi/goodwifi.conf
 VPN_BACKEND="${VPN_BACKEND:-auto}"
 

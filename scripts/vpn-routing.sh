@@ -19,6 +19,7 @@ IP6TABLES_CHAIN="GOODWIFI6_FORWARD"
 MANAGEMENT_SUBNETS="${MANAGEMENT_SUBNETS:-10.8.0.0/24 192.168.100.0/24 192.168.1.0/24}"
 
 # Load optional config override if present
+# shellcheck source=/dev/null
 [ -f /etc/goodwifi/goodwifi.conf ] && . /etc/goodwifi/goodwifi.conf
 VPN_BACKEND="${VPN_BACKEND:-auto}"
 
@@ -288,7 +289,31 @@ case "$2" in
     apply)
         apply_policy
         ;;
-    cleanup|down|vpn-down)
+    cleanup)
+        cleanup_policy
+        ;;
+    down|vpn-down)
+        if [ "$VPN_BACKEND" != "auto" ] && [ "$VPN_BACKEND" != "$1" ]; then
+            if ip link show "$VPN_BACKEND" >/dev/null 2>&1; then
+                VPN_IF="$VPN_BACKEND"
+                apply_policy
+                exit 0
+            fi
+        fi
+        if [ "$VPN_BACKEND" = "auto" ]; then
+            other_if=""
+            for cand in awg0 wg0 tun0; do
+                if [ "$cand" != "$1" ] && ip -4 addr show "$cand" 2>/dev/null | grep -q "inet "; then
+                    other_if="$cand"
+                    break
+                fi
+            done
+            if [ -n "$other_if" ]; then
+                VPN_IF="$other_if"
+                apply_policy
+                exit 0
+            fi
+        fi
         cleanup_policy
         ;;
     up|vpn-up|connectivity-change)
