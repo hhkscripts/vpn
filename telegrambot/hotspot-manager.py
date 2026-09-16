@@ -605,20 +605,24 @@ def main() -> None:
     parser.add_argument(
         "--telegram", action="store_true", help="Output in HTML format for Telegram"
     )
+    parser.add_argument(
+        "--html", action="store_true", help="Output formatted as HTML for Telegram"
+    )
 
     args = parser.parse_args()
+    telegram_format = bool(args.telegram or args.html)
 
     if len(sys.argv) == 1:
         args.status = True
 
     if args.switch_vpn:
         success = switch_vpn(args.switch_vpn)
-        output = print_status(get_status(), telegram_format=args.telegram if hasattr(args, "telegram") else (args.html if hasattr(args, "html") else False))
+        output = print_status(get_status(), telegram_format=telegram_format)
         print(output)
         sys.exit(0 if success else 1)
 
     if args.status:
-        output = print_status(get_status(), telegram_format=args.telegram)
+        output = print_status(get_status(), telegram_format=telegram_format)
         print(output)
 
     if args.clients:
@@ -631,7 +635,7 @@ def main() -> None:
     if args.fix:
         if not fix_hotspot():
             sys.exit(1)
-        output = print_status(get_status(), telegram_format=args.telegram)
+        output = print_status(get_status(), telegram_format=telegram_format)
         print(output)
 
     if args.restart:
