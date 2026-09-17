@@ -26,6 +26,7 @@ class Config(TypedDict, total=False):
     hotspot_subnet: str
     adguard_container: str
     telegram_container: str
+    adguard_enabled: bool
 
 
 class PingStatus(TypedDict):
@@ -73,6 +74,7 @@ CONFIG: Config = {
     "hotspot_subnet": "10.42.0.0/24",
     "adguard_container": "adguardhome",
     "telegram_container": "mpxraspberrypibot",
+    "adguard_enabled": True,
 }
 
 GITHUB_ROUTE_SCRIPT = "/usr/local/bin/github-vpn-routes.sh"
@@ -98,6 +100,11 @@ EMOJI_GLOBE = CUSTOM_EMOJIS["globe"]
 EMOJI_CROSS = CUSTOM_EMOJIS["cross"]
 EMOJI_PING = CUSTOM_EMOJIS["ping"]
 GOODWIFI_CONF = "/etc/goodwifi/goodwifi.conf"
+
+def get_host_path(path: str) -> str:
+    if not os.path.exists(path) and os.path.exists(f"/host{path}"):
+        return f"/host{path}"
+    return path
 
 
 def load_goodwifi_conf() -> None:
@@ -129,6 +136,8 @@ def load_goodwifi_conf() -> None:
                         CONFIG["adguard_container"] = v
                     elif k == "TELEGRAM_CONTAINER" and v:
                         CONFIG["telegram_container"] = v
+                    elif k == "ADGUARD_ENABLED" and v:
+                        CONFIG["adguard_enabled"] = v.lower() not in ["false", "0", "off", "no", "disable", "disabled"]
         except Exception:
             pass
 
@@ -619,6 +628,139 @@ def refresh_github_routes() -> None:
         log(f"GitHub route refresh failed{detail}", "WARN")
 
 
+
+
+def get_adguard_enabled() -> bool:
+    conf_path = get_host_path(GOODWIFI_CONF)
+    if os.path.exists(conf_path):
+        try:
+            with open(conf_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("ADGUARD_ENABLED="):
+                        val = (
+                            line.split("=", 1)[1].strip().strip('"').strip("'").lower()
+                        )
+                        if val in ["false", "0", "off", "no", "disable", "disabled"]:
+                            return False
+                        elif val in ["true", "1", "on", "yes", "enable", "enabled"]:
+                            return True
+        except Exception:
+            pass
+    st = check_docker_container(CONFIG.get("adguard_container", "adguardhome"))
+    if st is False:
+        return False
+    return True
+
+
+def configure_dnsmasq_fallback(enable_fallback: bool) -> bool:
+    conf_path = get_host_path("/etc/dnsmasq.conf")
+    if not os.path.exists(conf_path):
+        return False
+    try:
+        with open(conf_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        lines = content.splitlines()
+        new_lines = []
+        if enable_fallback:
+            has_fallback_server = False
+            for line in lines:
+                stripped = line.strip()
+                if stripped == "port=0":
+                    new_lines.append("#port=0")
+                    new_lines.append("server=1.1.1.1")
+                    new_lines.append("server=8.8.8.8")
+                    has_fallback_server = True
+                elif stripped.startswith("server=1.1.1.1") or stripped.startswith(
+                    "server=8.8.8.8"
+                ):
+                    has_fallback_server = True
+                    new_lines.append(line)
+                else:
+                    new_lines.append(line)
+            if not has_fallback_server:
+                new_lines.append("server=1.1.1.1")
+                new_lines.append("server=8.8.8.8")
+        else:
+            has_port_zero = False
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith("server=1.1.1.1") or stripped.startswith(
+                    "server=8.8.8.8"
+                ):
+                    continue
+                if stripped == "#port=0":
+                    new_lines.append("port=0")
+                    has_port_zero = True
+                else:
+                    if stripped == "port=0":
+                        has_port_zero = True
+                    new_lines.append(line)
+            if not has_port_zero:
+                new_lines.insert(0, "port=0")
+
+        new_content = "\n".join(new_lines) + "\n"
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as tf:
+            tf.write(new_content)
+            temp_path = tf.name
+        run_args(["sudo", "cp", temp_path, conf_path])
+        run_args(["sudo", "chmod", "0644", conf_path])
+        os.unlink(temp_path)
+        return True
+    except Exception as e:
+        log(f"Could not update dnsmasq config: {e}", "WARN")
+        return False
+
+
+def set_adguard_state(enable: bool) -> bool:
+    container_name = CONFIG.get("adguard_container", "adguardhome")
+    if enable:
+        log("Enabling AdGuard Home DNS service...")
+        update_goodwifi_conf("ADGUARD_ENABLED", "true")
+        configure_dnsmasq_fallback(enable_fallback=False)
+        run_args(["sudo", "systemctl", "restart", "dnsmasq"], timeout=30)
+        ok, _, _ = run_args(["docker", "start", container_name], timeout=30)
+        if not ok:
+            project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            adguard_dir = os.path.join(project_dir, "adguard")
+            compose_file = os.path.join(adguard_dir, "docker-compose.yml")
+            if os.path.exists(compose_file):
+                run_args(
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        compose_file,
+                        "up",
+                        "-d",
+                    ],
+                    timeout=60,
+                )
+        time.sleep(2)
+        running = check_docker_container(container_name)
+        if running:
+            log("AdGuard Home is now running and handling DNS.")
+            return True
+        else:
+            log("Could not start AdGuard Home container.", "WARN")
+            return False
+    else:
+        log("Disabling AdGuard Home DNS service (switching to fallback DNS)...")
+        update_goodwifi_conf("ADGUARD_ENABLED", "false")
+        run_args(["docker", "stop", container_name], timeout=30)
+        configure_dnsmasq_fallback(enable_fallback=True)
+        run_args(["sudo", "systemctl", "restart", "dnsmasq"], timeout=30)
+        time.sleep(1)
+        dns_ok = check_dns()
+        if dns_ok:
+            log("AdGuard Home disabled. Fallback DNS is active and working.")
+        else:
+            log("AdGuard Home disabled, but fallback DNS check failed.", "WARN")
+        return True
+
 def set_ipv6_mode(mode: str) -> bool:
     mode = mode.lower()
     if mode not in ["drop", "reject", "off"]:
@@ -698,9 +840,14 @@ def print_status(status: HotspotStatus, telegram_format: bool = False) -> str:
 
         # Services
         lines.append(f"<b>{EMOJI_TOOLS} SERVICES:</b>")
+        adguard_enabled = get_adguard_enabled()
         for service, ok in status["services"].items():
-            icon = EMOJI_CHECK if ok else EMOJI_CROSS
-            state = "Running" if ok else "Stopped"
+            if service == "adguard" and not adguard_enabled:
+                icon = "⏸️"
+                state = "Disabled"
+            else:
+                icon = EMOJI_CHECK if ok else EMOJI_CROSS
+                state = "Running" if ok else "Stopped"
             lines.append(f"{icon} <code>{service}</code>: {state}")
         lines.append("")
 
@@ -780,9 +927,15 @@ def print_status(status: HotspotStatus, telegram_format: bool = False) -> str:
     output.append("=" * 55)
 
     output.append(f"\n{Colors.BOLD}SERVICES:{Colors.RESET}")
+    adguard_enabled = get_adguard_enabled()
     for service, ok in status["services"].items():
-        icon = "✅" if ok else "❌"
-        output.append(f"  {icon} {service:<12} {'Running' if ok else 'Stopped'}")
+        if service == "adguard" and not adguard_enabled:
+            icon = "⏸️"
+            state = "Disabled"
+        else:
+            icon = "✅" if ok else "❌"
+            state = "Running" if ok else "Stopped"
+        output.append(f"  {icon} {service:<12} {state}")
 
     output.append(f"\n{Colors.BOLD}VPN:{Colors.RESET}")
     icon = "✅" if status["vpn"]["connected"] else "❌"
@@ -847,6 +1000,12 @@ def main() -> None:
         choices=["drop", "reject", "off"],
         help="Set IPv6 leak protection mode (drop, reject, off)",
     )
+    parser.add_argument(
+        "--adguard",
+        dest="set_adguard",
+        choices=["on", "off", "enable", "disable", "status", "restart"],
+        help="Manage AdGuard Home service (on, off, status, restart)",
+    )
     parser.add_argument("--clients", action="store_true")
     parser.add_argument(
         "--telegram", action="store_true", help="Output in HTML format for Telegram"
@@ -869,6 +1028,25 @@ def main() -> None:
 
     if args.set_ipv6:
         success = set_ipv6_mode(args.set_ipv6)
+        output = print_status(get_status(), telegram_format=telegram_format)
+        print(output)
+        sys.exit(0 if success else 1)
+
+    if args.set_adguard:
+        if args.set_adguard in ["on", "enable"]:
+            success = set_adguard_state(True)
+        elif args.set_adguard in ["off", "disable"]:
+            success = set_adguard_state(False)
+        elif args.set_adguard == "restart":
+            set_adguard_state(False)
+            success = set_adguard_state(True)
+        elif args.set_adguard == "status":
+            enabled = get_adguard_enabled()
+            st = check_docker_container(CONFIG.get("adguard_container", "adguardhome"))
+            state_str = "Running" if st else "Stopped"
+            config_str = "Enabled" if enabled else "Disabled"
+            print(f"AdGuard Config: {config_str} | Container: {state_str}")
+            sys.exit(0)
         output = print_status(get_status(), telegram_format=telegram_format)
         print(output)
         sys.exit(0 if success else 1)

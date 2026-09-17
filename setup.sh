@@ -200,6 +200,17 @@ stop_legacy_pihole_if_running() {
 restart_adguard_if_configured() {
   local compose_dir="$PROJECT_DIR/adguard"
 
+  # Check if AdGuard is disabled in goodwifi.conf
+  local adguard_enabled="${ADGUARD_ENABLED:-true}"
+  if [ "$adguard_enabled" = "false" ] || [ "$adguard_enabled" = "0" ] || [ "$adguard_enabled" = "off" ] || [ "$adguard_enabled" = "no" ]; then
+    log_info "AdGuard Home is disabled via config; skipping start and enabling dnsmasq resolver fallback"
+    if [ -f /etc/dnsmasq.conf ] && grep -q '^port=0' /etc/dnsmasq.conf; then
+      sudo sed -i 's/^port=0/#port=0\nserver=1.1.1.1\nserver=8.8.8.8/' /etc/dnsmasq.conf
+      sudo systemctl restart dnsmasq 2>/dev/null || true
+    fi
+    return
+  fi
+
   if [ ! -f "$compose_dir/docker-compose.yml" ]; then
     return
   fi

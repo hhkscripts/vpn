@@ -132,5 +132,56 @@ class VpnConnectionDetectionTests(unittest.TestCase):
             self.assertEqual(hotspot_manager.get_vpn_connection_name(), "custom-vpn")
 
 
+class AdGuardStateTests(unittest.TestCase):
+    def test_get_adguard_enabled_defaults_to_true(self):
+        with patch("builtins.open", side_effect=FileNotFoundError):
+            with patch.object(
+                hotspot_manager, "check_docker_container", return_value=True
+            ):
+                self.assertTrue(hotspot_manager.get_adguard_enabled())
+
+    def test_set_adguard_state_disable(self):
+        with (
+            patch.object(
+                hotspot_manager, "update_goodwifi_conf", return_value=True
+            ) as upd,
+            patch.object(
+                hotspot_manager, "configure_dnsmasq_fallback", return_value=True
+            ) as dnsm,
+            patch.object(
+                hotspot_manager, "run_args", return_value=(True, "", "")
+            ) as run,
+            patch.object(hotspot_manager, "check_dns", return_value=True),
+            patch.object(hotspot_manager, "log"),
+        ):
+            self.assertTrue(hotspot_manager.set_adguard_state(False))
+            upd.assert_called_once_with("ADGUARD_ENABLED", "false")
+            dnsm.assert_called_once_with(enable_fallback=True)
+            stop_call = any(
+                call.args[0][:2] == ["docker", "stop"] for call in run.call_args_list
+            )
+            self.assertTrue(stop_call)
+
+    def test_set_adguard_state_enable(self):
+        with (
+            patch.object(
+                hotspot_manager, "update_goodwifi_conf", return_value=True
+            ) as upd,
+            patch.object(
+                hotspot_manager, "configure_dnsmasq_fallback", return_value=True
+            ) as dnsm,
+            patch.object(
+                hotspot_manager, "run_args", return_value=(True, "", "")
+            ),
+            patch.object(
+                hotspot_manager, "check_docker_container", return_value=True
+            ),
+            patch.object(hotspot_manager, "log"),
+        ):
+            self.assertTrue(hotspot_manager.set_adguard_state(True))
+            upd.assert_called_once_with("ADGUARD_ENABLED", "true")
+            dnsm.assert_called_once_with(enable_fallback=False)
+
+
 if __name__ == "__main__":
     unittest.main()

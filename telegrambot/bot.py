@@ -64,6 +64,9 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
         ],
         [
             KeyboardButton("IPv6 Mode", icon_custom_emoji_id=EMOJI_TOOLS),
+            KeyboardButton("AdGuard", icon_custom_emoji_id=EMOJI_LOCK),
+        ],
+        [
             KeyboardButton("Help", icon_custom_emoji_id=EMOJI_HELP),
         ],
     ],
@@ -177,12 +180,18 @@ def make_status_keyboard(status_text: str) -> InlineKeyboardMarkup:
         callback_data="menu_ipv6",
         icon_custom_emoji_id=EMOJI_TOOLS,
     )
+    adguard_running = "adguard: Running" in status_text or "adguard      Running" in status_text
+    adguard_btn = InlineKeyboardButton(
+        f"🛡 AdGuard: {'ON' if adguard_running else 'OFF'}",
+        callback_data="menu_adguard",
+        icon_custom_emoji_id=EMOJI_LOCK,
+    )
     refresh_btn = InlineKeyboardButton(
         "Refresh",
         callback_data="refresh_status",
         icon_custom_emoji_id=EMOJI_REFRESH,
     )
-    return InlineKeyboardMarkup([[switch_btn], [ipv6_btn, refresh_btn]])
+    return InlineKeyboardMarkup([[switch_btn], [ipv6_btn, adguard_btn], [refresh_btn]])
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -196,6 +205,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 <code>status</code> - Show hotspot and VPN status
 <code>switch_vpn &lt;awg0|tun0|auto&gt;</code> - Switch active VPN backend
 <code>ipv6 &lt;drop|reject|off&gt;</code> - Configure IPv6 leak protection
+<code>adguard &lt;on|off|restart&gt;</code> - Toggle AdGuard Home service
 <code>restart</code> - Restart hotspot services
 <code>restart_vpn</code> - Restart VPN connection
 <code>fix</code> - Auto-fix common issues
@@ -309,6 +319,197 @@ def get_current_ipv6_mode() -> str:
         except Exception:
             pass
     return "drop"
+
+
+def get_current_adguard_state() -> bool:
+    conf_path = "/host/etc/goodwifi/goodwifi.conf"
+    if not os.path.exists(conf_path):
+        conf_path = "/etc/goodwifi/goodwifi.conf"
+
+    if os.path.exists(conf_path):
+        try:
+            with open(conf_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("ADGUARD_ENABLED="):
+                        val = (
+                            line.split("=", 1)[1].strip().strip('"').strip("'").lower()
+                        )
+                        if val in ["false", "0", "off", "no", "disable", "disabled"]:
+                            return False
+                        elif val in ["true", "1", "on", "yes", "enable", "enabled"]:
+                            return True
+        except Exception:
+            pass
+    return True
+
+
+def make_adguard_keyboard(adguard_on: bool) -> InlineKeyboardMarkup:
+    if adguard_on:
+        toggle_btn = InlineKeyboardButton(
+            "🔴 Turn OFF (Bypass / Disable)",
+            callback_data="adguard_off",
+            icon_custom_emoji_id=EMOJI_TOOLS,
+        )
+    else:
+        toggle_btn = InlineKeyboardButton(
+            "🟢 Turn ON (Filter & Block Ads)",
+            callback_data="adguard_on",
+            icon_custom_emoji_id=EMOJI_LOCK,
+        )
+    restart_btn = InlineKeyboardButton(
+        "🔄 Restart AdGuard",
+        callback_data="adguard_restart",
+        icon_custom_emoji_id=EMOJI_REFRESH,
+    )
+    refresh_btn = InlineKeyboardButton(
+        "Refresh Status",
+        callback_data="refresh_status",
+        icon_custom_emoji_id=EMOJI_REFRESH,
+    )
+    return InlineKeyboardMarkup([[toggle_btn], [restart_btn], [refresh_btn]])
+
+
+async def adguard_menu_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    if update.effective_user is None or not check_authorization(
+        update.effective_user.id
+    ):
+        return
+
+    is_enabled = get_current_adguard_state()
+    state_str = (
+        "🟢 Active (Filtering & Blocking Ads)"
+        if is_enabled
+        else "🔴 Disabled (Fallback to dnsmasq)"
+    )
+    reply_markup = make_adguard_keyboard(is_enabled)
+
+    text = (
+        f"<b>🛡 AdGuard Home DNS Protection</b>\n\n"
+        f"Current Status: <b>{state_str}</b>\n\n"
+        f"• <b>Turn ON</b>: AdGuard Home filters DNS and blocks ads.\n"
+        f"• <b>Turn OFF</b>: AdGuard Home is stopped; dnsmasq resolves upstream DNS directly on <code>10.42.0.1:53</code>.\n\n"
+        f"Choose an action below:"
+    )
+    if update.message:
+        await update.message.reply_text(
+            text, reply_markup=reply_markup, parse_mode="HTML"
+        )
+
+
+async def adguard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query is None or query.data is None:
+        return
+    if update.effective_user is None or not check_authorization(
+        update.effective_user.id
+    ):
+        try:
+            await query.answer("Unauthorized", show_alert=True)
+        except Exception:
+            pass
+        return
+
+    data = query.data
+    if data == "menu_adguard":
+        is_enabled = get_current_adguard_state()
+        state_str = (
+            "🟢 Active (Filtering & Blocking Ads)"
+            if is_enabled
+            else "🔴 Disabled (Fallback to dnsmasq)"
+        )
+        reply_markup = make_adguard_keyboard(is_enabled)
+        text = (
+            f"<b>🛡 AdGuard Home DNS Protection</b>\n\n"
+            f"Current Status: <b>{state_str}</b>\n\n"
+            f"• <b>Turn ON</b>: AdGuard Home filters DNS and blocks ads.\n"
+            f"• <b>Turn OFF</b>: AdGuard Home is stopped; dnsmasq resolves upstream DNS directly on <code>10.42.0.1:53</code>.\n\n"
+            f"Choose an action below:"
+        )
+        try:
+            await query.edit_message_text(
+                text, reply_markup=reply_markup, parse_mode="HTML"
+            )
+            await query.answer()
+        except Exception:
+            pass
+        return
+
+    action_map = {
+        "adguard_on": ("on", "Enabling AdGuard Home..."),
+        "adguard_off": ("off", "Disabling AdGuard Home (switching to dnsmasq)..."),
+        "adguard_restart": ("restart", "Restarting AdGuard Home..."),
+    }
+    if data not in action_map:
+        return
+
+    arg, wait_msg = action_map[data]
+    try:
+        await query.answer(wait_msg)
+    except Exception:
+        pass
+
+    try:
+        await query.edit_message_text(f"⏳ <i>{wait_msg}</i>", parse_mode="HTML")
+    except Exception:
+        pass
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, run_hotspot_command, ["--adguard", arg])
+
+    status_text = await get_status_text()
+    reply_markup = make_status_keyboard(status_text)
+    try:
+        await query.edit_message_text(
+            status_text, reply_markup=reply_markup, parse_mode="HTML"
+        )
+    except Exception:
+        pass
+
+
+async def adguard_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None or not check_authorization(
+        update.effective_user.id
+    ):
+        return
+
+    args = context.args if context.args else []
+    if not args:
+        await adguard_menu_command(update, context)
+        return
+
+    action = args[0].lower()
+    if action not in ["on", "off", "enable", "disable", "restart", "status"]:
+        if update.message:
+            await update.message.reply_text(
+                "Usage: <code>adguard &lt;on|off|restart|status&gt;</code>",
+                parse_mode="HTML",
+                reply_markup=MAIN_KEYBOARD,
+            )
+        return
+
+    if action in ["on", "enable"]:
+        arg = "on"
+        wait_text = "Enabling AdGuard Home..."
+    elif action in ["off", "disable"]:
+        arg = "off"
+        wait_text = "Disabling AdGuard Home (switching to fallback DNS)..."
+    elif action == "restart":
+        arg = "restart"
+        wait_text = "Restarting AdGuard Home..."
+    else:
+        await adguard_menu_command(update, context)
+        return
+
+    if update.message:
+        msg = await update.message.reply_text(f"⏳ <i>{wait_text}</i>", parse_mode="HTML")
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, run_hotspot_command, ["--adguard", arg])
+        status_text = await get_status_text()
+        reply_markup = make_status_keyboard(status_text)
+        await msg.edit_text(status_text, reply_markup=reply_markup, parse_mode="HTML")
 
 
 async def ipv6_menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -631,6 +832,25 @@ async def handle_text_message(
         "switch",
     ]:
         await switch_menu_command(update, context)
+    elif text in ["adguard", "adguard home", "adguard_home"] or normalized in [
+        "adguard",
+        "adguard_home",
+    ]:
+        await adguard_menu_command(update, context)
+    elif text.startswith("adguard") or text.startswith("/adguard"):
+        parts = text.split()
+        if len(parts) > 1 and parts[1] in [
+            "on",
+            "off",
+            "enable",
+            "disable",
+            "restart",
+            "status",
+        ]:
+            context.args = [parts[1]]
+            await adguard_command(update, context)
+        else:
+            await adguard_menu_command(update, context)
     elif text in ["ipv6", "ipv6 mode", "ipv6_mode", "/ipv6"] or normalized in [
         "ipv6",
         "ipv6_mode",
@@ -692,6 +912,7 @@ def main():
         app.add_handler(CommandHandler("clients", clients_command))
         app.add_handler(CommandHandler("help", help_command))
         app.add_handler(CommandHandler("ipv6", ipv6_command))
+        app.add_handler(CommandHandler("adguard", adguard_command))
 
         app.add_handler(
             CallbackQueryHandler(
@@ -700,6 +921,11 @@ def main():
         )
         app.add_handler(
             CallbackQueryHandler(ipv6_callback, pattern="^(ipv6_|menu_ipv6)")
+        )
+        app.add_handler(
+            CallbackQueryHandler(
+                adguard_callback, pattern="^(adguard_|menu_adguard)"
+            )
         )
         app.add_handler(
             CallbackQueryHandler(refresh_callback, pattern="^refresh_status$")
