@@ -129,6 +129,41 @@ connect_vpn_if_available() {
   sleep 3
 }
 
+ensure_docker_installed() {
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    log_info "Docker and Docker Compose are already installed"
+    return 0
+  fi
+
+  log_info "Docker or Docker Compose not found. Installing Docker..."
+
+  local install_success=0
+  if command -v curl >/dev/null 2>&1; then
+    if curl -fsSL https://get.docker.com | sudo sh; then
+      install_success=1
+    fi
+  fi
+
+  if [ "$install_success" -ne 1 ]; then
+    log_warn "Official Docker installation script failed or unavailable. Falling back to distribution packages..."
+    sudo apt install -y docker.io docker-compose-plugin 2>/dev/null || sudo apt install -y docker.io docker-compose 2>/dev/null || true
+  fi
+
+  sudo systemctl daemon-reload 2>/dev/null || true
+  sudo systemctl enable --now docker 2>/dev/null || true
+
+  if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    sudo usermod -aG docker "$SUDO_USER" 2>/dev/null || true
+    log_info "Added user '$SUDO_USER' to docker group"
+  fi
+
+  if command -v docker >/dev/null 2>&1; then
+    log_info "Docker installed successfully"
+  else
+    log_warn "Docker installation could not be verified automatically. You can install Docker manually later if needed."
+  fi
+}
+
 stop_legacy_pihole_if_running() {
   if ! command -v docker >/dev/null 2>&1; then
     return
@@ -241,7 +276,8 @@ configure_hotspot_credentials
 
 log_info "Installing required packages"
 sudo apt update
-sudo apt install -y hostapd dnsmasq ipset ipset-persistent iptables-persistent netfilter-persistent python3 python3-pip curl wget util-linux
+sudo apt install -y hostapd dnsmasq ipset ipset-persistent iptables-persistent netfilter-persistent python3 python3-pip curl wget util-linux network-manager iw wireless-tools git ca-certificates
+ensure_docker_installed
 
 log_info "Cleaning up legacy ipsets if migrating"
 for legacy_set in github_vpn_routes local_bypass_domains; do
