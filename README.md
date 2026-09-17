@@ -60,17 +60,24 @@ Traffic is split dynamically using Linux policy routing, packet marks, and ipset
 
 ## Configuration (`/etc/goodwifi/goodwifi.conf`)
 
-Create or modify `/etc/goodwifi/goodwifi.conf` to set project-wide preferences:
+The configuration file `/etc/goodwifi/goodwifi.conf` is **automatically deployed with default settings** during `./setup.sh` from [`configs/goodwifi.conf`](configs/goodwifi.conf). You do not need to create it manually.
+
+If you wish to customize project-wide preferences, you can edit `/etc/goodwifi/goodwifi.conf`:
 
 ```bash
 # Preferred VPN backend: "auto", "awg0", "wg0", or "tun0"
+# "auto" detects any active VPN interface (awg0 > wg0 > tun0)
 VPN_BACKEND="auto"
 
-# VPN MTU (default: 1280 for AmneziaWG/WireGuard, 1400 for OpenVPN)
-VPN_MTU="1280"
+# VPN MTU (e.g. 1280 for AmneziaWG/WireGuard, 1400 for OpenVPN)
+# Leave unset or empty to use automatic per-interface defaults
+VPN_MTU=""
 
 # OpenVPN NetworkManager connection profile name
 VPN_UUID="pi"
+
+# GitHub VPN routes ipset name
+GITHUB_IPSET="github_vpn_routes"
 ```
 
 ---

@@ -226,12 +226,11 @@ copy_file "$CONFIG_DIR/NetworkManager.conf" /etc/NetworkManager/NetworkManager.c
 copy_file "$CONFIG_DIR/20-hotspot-manager" /etc/NetworkManager/dispatcher.d/20-hotspot-manager 0755
 copy_file "$CONFIG_DIR/90-hotspot-vpn-policy" /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy 0755
 
-log_info "Configuring GoodWifi default backend config"
+log_info "Configuring GoodWifi default configuration"
 backup_file /etc/goodwifi/goodwifi.conf
 sudo mkdir -p /etc/goodwifi
 if [ ! -f /etc/goodwifi/goodwifi.conf ]; then
-  echo 'VPN_BACKEND="auto"' | sudo tee /etc/goodwifi/goodwifi.conf >/dev/null
-  sudo chmod 0644 /etc/goodwifi/goodwifi.conf
+  copy_file "$CONFIG_DIR/goodwifi.conf" /etc/goodwifi/goodwifi.conf 0644
 fi
 copy_file "$CONFIG_DIR/github-ipv4-ranges.txt" /etc/goodwifi/github-ipv4-ranges.txt 0644
 
