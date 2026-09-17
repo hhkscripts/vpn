@@ -176,7 +176,7 @@ def make_status_keyboard(status_text: str) -> InlineKeyboardMarkup:
         )
 
     ipv6_btn = InlineKeyboardButton(
-        "🛡 IPv6 Mode",
+        "IPv6 Mode",
         callback_data="menu_ipv6",
         icon_custom_emoji_id=EMOJI_TOOLS,
     )
@@ -187,7 +187,7 @@ def make_status_keyboard(status_text: str) -> InlineKeyboardMarkup:
         or get_current_adguard_state()
     )
     adguard_btn = InlineKeyboardButton(
-        f"🛡 AdGuard: {'ON' if adguard_running else 'OFF'}",
+        f"AdGuard: {'ON' if adguard_running else 'OFF'}",
         callback_data="menu_adguard",
         icon_custom_emoji_id=EMOJI_LOCK,
     )
@@ -352,18 +352,18 @@ def get_current_adguard_state() -> bool:
 def make_adguard_keyboard(adguard_on: bool) -> InlineKeyboardMarkup:
     if adguard_on:
         toggle_btn = InlineKeyboardButton(
-            "🔴 Turn OFF (Bypass / Disable)",
+            "Turn OFF (Bypass / Disable)",
             callback_data="adguard_off",
             icon_custom_emoji_id=EMOJI_TOOLS,
         )
     else:
         toggle_btn = InlineKeyboardButton(
-            "🟢 Turn ON (Filter & Block Ads)",
+            "Turn ON (Filter & Block Ads)",
             callback_data="adguard_on",
             icon_custom_emoji_id=EMOJI_LOCK,
         )
     restart_btn = InlineKeyboardButton(
-        "🔄 Restart AdGuard",
+        "Restart AdGuard",
         callback_data="adguard_restart",
         icon_custom_emoji_id=EMOJI_REFRESH,
     )
@@ -654,19 +654,19 @@ async def switch_menu_command(
     keyboard = [
         [
             InlineKeyboardButton(
-                "⚡ AmneziaWG (awg0)",
+                "AmneziaWG (awg0)",
                 callback_data="switch_awg0",
                 icon_custom_emoji_id=EMOJI_LOCK,
             ),
             InlineKeyboardButton(
-                "🛡 OpenVPN (tun0)",
+                "OpenVPN (tun0)",
                 callback_data="switch_tun0",
                 icon_custom_emoji_id=EMOJI_LOCK,
             ),
         ],
         [
             InlineKeyboardButton(
-                "🔄 Auto (Auto Select)",
+                "Auto (Auto Select)",
                 callback_data="switch_auto",
                 icon_custom_emoji_id=EMOJI_REFRESH,
             ),
