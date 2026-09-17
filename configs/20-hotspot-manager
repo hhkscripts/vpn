@@ -4,7 +4,7 @@
 set -euo pipefail
 
 LOG_FILE="/var/log/hotspot-manager.log"
-VPN_UUID="pi"
+VPN_UUID=""
 POLICY_SCRIPT="/etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy"
 HOTSPOT_MGR="/usr/local/bin/hotspot-manager.py"
 
@@ -56,8 +56,14 @@ case "${2:-}" in
                         log_message "Starting awg0..."
                         awg-quick up awg0 >> "$LOG_FILE" 2>&1 || true
                     else
-                        log_message "Falling back to OpenVPN connection: $VPN_UUID..."
-                        nmcli connection up "$VPN_UUID" >> "$LOG_FILE" 2>&1 || true
+                        vpn_conn="${VPN_UUID:-}"
+                        if [ -z "$vpn_conn" ] || ! nmcli -t -f NAME connection show 2>/dev/null | grep -qx "$vpn_conn"; then
+                            vpn_conn="$(nmcli -t -f NAME,TYPE connection show 2>/dev/null | awk -F: '$2=="vpn" || $2=="wireguard" {print $1; exit}')"
+                        fi
+                        if [ -n "$vpn_conn" ]; then
+                            log_message "Activating VPN connection: $vpn_conn..."
+                            nmcli connection up "$vpn_conn" >> "$LOG_FILE" 2>&1 || true
+                        fi
                     fi
                 fi
             else

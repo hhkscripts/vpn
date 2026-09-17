@@ -90,29 +90,41 @@ vpn_has_ipv4() {
   get_active_vpn_if >/dev/null 2>&1
 }
 
-vpn_profile_exists() {
-  nmcli -t -f NAME connection show 2>/dev/null | grep -qx 'pi'
-}
+detect_nm_vpn_connection() {
+  local conn="${VPN_UUID:-}"
+  if [ -n "$conn" ] && nmcli -t -f NAME connection show 2>/dev/null | grep -qx "$conn"; then
+    echo "$conn"
+    return 0
+  fi
 
-vpn_profile_active() {
-  nmcli -t -f NAME,TYPE connection show --active 2>/dev/null | grep -qx 'pi:vpn'
+  local active
+  active="$(nmcli -t -f NAME,TYPE connection show --active 2>/dev/null | awk -F: '$2=="vpn" || $2=="wireguard" {print $1; exit}')"
+  if [ -n "$active" ]; then
+    echo "$active"
+    return 0
+  fi
+
+  nmcli -t -f NAME,TYPE connection show 2>/dev/null | awk -F: '$2=="vpn" || $2=="wireguard" {print $1; exit}'
 }
 
 connect_vpn_if_available() {
-  if ! vpn_profile_exists; then
-    log_warn "NetworkManager VPN connection 'pi' was not found."
+  local vpn_conn
+  vpn_conn="$(detect_nm_vpn_connection)"
+
+  if [ -z "$vpn_conn" ]; then
+    log_warn "No NetworkManager VPN connection found."
     return
   fi
 
-  if vpn_profile_active; then
-    log_info "VPN connection 'pi' is already active"
+  if nmcli -t -f NAME connection show --active 2>/dev/null | grep -qx "$vpn_conn"; then
+    log_info "VPN connection '$vpn_conn' is already active"
     sleep 3
     return
   fi
 
-  log_info "Connecting VPN connection: pi"
-  if ! sudo nmcli connection up pi; then
-    log_warn "Could not activate VPN connection 'pi'. Check the OpenVPN profile and credentials."
+  log_info "Connecting VPN connection: $vpn_conn"
+  if ! sudo nmcli connection up "$vpn_conn"; then
+    log_warn "Could not activate VPN connection '$vpn_conn'. Check the VPN profile and credentials."
   fi
   sleep 3
 }

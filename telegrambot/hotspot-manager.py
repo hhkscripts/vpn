@@ -63,7 +63,7 @@ class HotspotStatus(TypedDict):
 
 CONFIG: Config = {
     "services": ["hostapd", "dnsmasq"],
-    "vpn_name": "pi",
+    "vpn_name": "",
     "default_hotspot_ssid": "GoodWifi",
     "hostapd_conf": "/etc/hostapd/hostapd.conf",
     "hotspot_ip": "10.42.0.1",
@@ -477,6 +477,38 @@ def apply_vpn_policy(interface: Optional[str] = None) -> bool:
     return True
 
 
+def get_vpn_connection_name() -> str:
+    """Return configured or auto-detected NetworkManager VPN connection name."""
+    configured = CONFIG.get("vpn_name", "")
+    ok, out, _ = run_args(["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show"])
+    if not ok or not out:
+        return configured or "pi"
+
+    lines = out.splitlines()
+    if configured:
+        for line in lines:
+            if line.split(":", 1)[0] == configured:
+                return configured
+
+    ok_act, out_act, _ = run_args(
+        ["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show", "--active"]
+    )
+    if ok_act and out_act:
+        for line in out_act.splitlines():
+            if ":" in line:
+                name, ctype = line.split(":", 1)
+                if ctype in ["vpn", "wireguard"] and name:
+                    return name
+
+    for line in lines:
+        if ":" in line:
+            name, ctype = line.split(":", 1)
+            if ctype in ["vpn", "wireguard"] and name:
+                return name
+
+    return configured or "pi"
+
+
 def switch_vpn(target: str) -> bool:
     target = target.lower()
     if target not in ["awg0", "tun0", "wg0", "auto"]:
@@ -486,10 +518,9 @@ def switch_vpn(target: str) -> bool:
     update_goodwifi_conf("VPN_BACKEND", target)
 
     log(f"Switching VPN backend to {target}...")
+    vpn_name = get_vpn_connection_name()
     if target in ["awg0", "wg0"]:
-        run_args(
-            ["sudo", "nmcli", "connection", "down", CONFIG["vpn_name"]], timeout=15
-        )
+        run_args(["sudo", "nmcli", "connection", "down", vpn_name], timeout=15)
         svc = "awg-quick@awg0" if target == "awg0" else "wg-quick@wg0"
         run_args(["sudo", "systemctl", "start", svc], timeout=30)
         wait_for_interface(target, timeout=10)
@@ -500,7 +531,7 @@ def switch_vpn(target: str) -> bool:
         run_args(
             ["sudo", "systemctl", "stop", "awg-quick@awg0", "wg-quick@wg0"], timeout=15
         )
-        run_args(["sudo", "nmcli", "connection", "up", CONFIG["vpn_name"]], timeout=70)
+        run_args(["sudo", "nmcli", "connection", "up", vpn_name], timeout=70)
         wait_for_interface("tun0", timeout=15)
         ok = apply_vpn_policy("tun0")
         refresh_github_routes()
@@ -549,12 +580,13 @@ def restart_vpn() -> bool:
         log("Restarting OpenVPN connection...")
     else:
         log("VPN not connected, connecting...")
-    run_args(["sudo", "nmcli", "connection", "down", CONFIG["vpn_name"]], timeout=20)
+    vpn_name = get_vpn_connection_name()
+    run_args(["sudo", "nmcli", "connection", "down", vpn_name], timeout=20)
     time.sleep(2)
     last_error = "unknown error"
     for attempt in range(1, 3):
         ok, out, err = run_args(
-            ["sudo", "nmcli", "connection", "up", CONFIG["vpn_name"]],
+            ["sudo", "nmcli", "connection", "up", vpn_name],
             timeout=70,
         )
         if (ok or check_vpn()) and wait_for_interface("tun0", timeout=15):
@@ -567,7 +599,7 @@ def restart_vpn() -> bool:
         if attempt < 2:
             log(f"VPN activation attempt {attempt} failed; retrying...", "WARN")
             run_args(
-                ["sudo", "nmcli", "connection", "down", CONFIG["vpn_name"]],
+                ["sudo", "nmcli", "connection", "down", vpn_name],
                 timeout=20,
             )
             time.sleep(2)

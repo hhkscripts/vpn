@@ -74,7 +74,7 @@ VPN_BACKEND="auto"
 VPN_MTU=""
 
 # OpenVPN NetworkManager connection profile name
-VPN_UUID="pi"
+VPN_UUID=""
 
 # GitHub VPN routes ipset name
 GITHUB_IPSET="vpn_routes"
