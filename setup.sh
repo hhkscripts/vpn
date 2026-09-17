@@ -76,8 +76,18 @@ ensure_managed_block() {
   } | sudo tee -a "$file" >/dev/null
 }
 
+get_active_vpn_if() {
+  for cand in awg0 wg0 tun0; do
+    if ip -4 addr show "$cand" 2>/dev/null | grep -q "inet "; then
+      echo "$cand"
+      return 0
+    fi
+  done
+  return 1
+}
+
 vpn_has_ipv4() {
-  ip -4 addr show tun0 2>/dev/null | grep -q "inet "
+  get_active_vpn_if >/dev/null 2>&1
 }
 
 vpn_profile_exists() {
@@ -257,7 +267,8 @@ sudo chmod -x /etc/NetworkManager/dispatcher.d/50-vpn-route 2>/dev/null || true
 sudo chmod -x /etc/NetworkManager/dispatcher.d/99-vpn-routing 2>/dev/null || true
 
 log_info "Applying hotspot routing/firewall policy"
-sudo /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy tun0 apply
+target_vpn="$(get_active_vpn_if 2>/dev/null || echo "tun0")"
+sudo /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy "$target_vpn" apply
 sudo netfilter-persistent save
 
 log_info "Configuring wlan0 address"
@@ -281,14 +292,16 @@ if ! vpn_has_ipv4; then
 fi
 
 if vpn_has_ipv4; then
-  log_info "tun0 is active and has an IPv4 address"
-  sudo /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy tun0 up
-  log_info "Refreshing GitHub host routes through tun0"
+  active_vpn="$(get_active_vpn_if)"
+  log_info "VPN interface $active_vpn is active and has an IPv4 address"
+  sudo /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy "$active_vpn" up
+  log_info "Refreshing GitHub host routes through $active_vpn"
   if ! sudo /usr/local/bin/github-vpn-routes.sh; then
     log_warn "Could not refresh GitHub host routes. You can retry with: sudo github-vpn-routes.sh"
   fi
 else
-  log_warn "tun0 has no IPv4 address yet. If VPN 'pi' is active, confirm it creates tun0."
+  log_warn "No active VPN interface (awg0, wg0, tun0) with an IPv4 address found."
+  log_warn "If using OpenVPN ('pi'), confirm it creates tun0. If using AmneziaWG, check awg0."
   log_warn "After the VPN is healthy, reapply hotspot routing with: hotspot --restart-vpn"
   log_warn "Then refresh GitHub host routes with: sudo github-vpn-routes.sh"
 fi

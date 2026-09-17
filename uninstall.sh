@@ -64,9 +64,13 @@ sudo systemctl disable hostapd dnsmasq 2>/dev/null || true
 sudo systemctl stop wpa_supplicant 2>/dev/null || true
 
 if [ -x "$POLICY_SCRIPT" ]; then
-  sudo "$POLICY_SCRIPT" tun0 cleanup
+  for iface in awg0 wg0 tun0; do
+    sudo "$POLICY_SCRIPT" "$iface" cleanup 2>/dev/null || true
+  done
 elif [ -x /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy ]; then
-  sudo /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy tun0 cleanup
+  for iface in awg0 wg0 tun0; do
+    sudo /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy "$iface" cleanup 2>/dev/null || true
+  done
 fi
 sudo netfilter-persistent save
 

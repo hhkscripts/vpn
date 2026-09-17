@@ -34,6 +34,9 @@ class RestartVpnTests(unittest.TestCase):
             return True, "", ""
 
         with (
+            patch.object(
+                hotspot_manager, "get_configured_backend", return_value="tun0"
+            ),
             patch.object(hotspot_manager, "check_vpn", return_value=False),
             patch.object(hotspot_manager, "run_args", side_effect=fake_run_args),
             patch.object(hotspot_manager, "wait_for_interface", return_value=True),

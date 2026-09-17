@@ -1,201 +1,130 @@
-# Raspberry Pi VPN Hotspot
+# Raspberry Pi VPN Hotspot (GoodWifi)
 
-GoodWifi is a Raspberry Pi Wi-Fi hotspot that sends connected client traffic through an encrypted VPN tunnel (supporting AmneziaWG, WireGuard, and OpenVPN) while keeping the Pi host, Docker workloads, and local services on the normal Ethernet route.
+GoodWifi is a resilient Raspberry Pi Wi-Fi hotspot designed to defeat censorship and DPI (Deep Packet Inspection). It automatically routes connected Wi-Fi clients through an encrypted VPN tunnel (**AmneziaWG**, **WireGuard**, or **OpenVPN**) while keeping the Pi host, Docker workloads, and local services on the normal Ethernet route.
 
-## Routing Design
+---
 
-Traffic is intentionally split:
+## Key Features
 
-- GoodWifi clients: `10.42.0.0/24 -> wlan0 -> VPN (awg0 / tun0) -> VPS`
-- GoodWifi management access: selected local/VPN management subnets stay on the Pi's main routes instead of the VPN-only client table
-- Pi host traffic: `eth0 -> <LAN gateway> -> ISP router`
-- Docker workloads: normal host/Docker routes, not forced through the hotspot VPN
-- GitHub host traffic: selected GitHub IPv4 ranges can be marked into the VPN when the ISP blocks GitHub
-- Binance client traffic: Binance DNS answers are placed in `local_bypass_domains` and routed through `eth0`, so Binance P2P sees the normal Myanmar ISP public IP instead of the VPN exit IP
-- DNS for GoodWifi clients: `10.42.0.1:53` handled by AdGuard Home
-- DHCP for GoodWifi clients: `dnsmasq` on `wlan0`, assigning `10.42.0.10` to `10.42.0.100`
+- **Multi-Backend VPN**: Native support for **AmneziaWG (`awg0`)** (obfuscated anti-DPI WireGuard), **WireGuard (`wg0`)**, and **OpenVPN (`tun0`)**, with automatic health checking and failover.
+- **Selective Policy Routing**: Hotspot client traffic goes through the active VPN; Raspberry Pi host services, SSH, and Docker containers remain reachable on Ethernet (`eth0`).
+- **Selective GitHub Routing**: Routes GitHub API, Git, and GitHub Actions runner traffic through the VPN to bypass local censorship while keeping the rest of host traffic on local LAN.
+- **Selective Local Bypass (Binance / P2P)**: Automatically routes specific services (such as Binance) through the local Myanmar ISP gateway via DNS ipsets (`local_bypass_domains`) to avoid VPN geo-blocking.
+- **AdGuard Home DNS Filtering**: Blocks ads and trackers network-wide while dynamically populating policy routing ipsets.
+- **Telegram Bot Remote Control**: Manage VPN backends, inspect connected clients, and monitor system health with interactive inline buttons and Telegram Premium status emojis.
 
-## Do Not Force The Host Default Route
+---
 
-Do not install dispatcher scripts or manual fixes that run:
+## Routing Architecture
 
-```bash
-ip route del default
-ip route add default dev tun0
-```
+Traffic is split dynamically using Linux policy routing, packet marks, and ipsets:
 
-Those commands replace the Pi's main default route with the VPN tunnel. That is the wrong model for this project.
+| Source / Destination | Interface | Routing Mechanism | Purpose |
+| :--- | :--- | :--- | :--- |
+| **Hotspot Clients** (`10.42.0.0/24`) | Active VPN (`awg0` / `wg0` / `tun0`) | Policy `table 100` (`github_vpn`) | Encrypted, secure Internet for all Wi-Fi clients |
+| **Binance / Local Bypass** | `eth0` (Local ISP) | `fwmark 0x65` -> `table main` | Bypasses VPN so P2P exchanges see local Myanmar IP |
+| **GoodWifi Management Subnets** | `eth0` / Local LAN | `priority 997` -> `table main` | Clients can access Pi services (`10.42.0.1`, LAN IPs, VPN IPs) |
+| **Raspberry Pi Host Traffic** | `eth0` (Local ISP) | Default route (`table main`) | Fast, unaffected host networking, SSH, and Docker |
+| **Selected GitHub Host Traffic** | Active VPN (`awg0` / `tun0`) | `fwmark 0x64` (`github_vpn_routes`) | Ensures Git, GitHub Actions Runner, and APIs never timeout |
 
-The Pi must keep its main route on `eth0` so SSH, Docker, AdGuard Home, GitHub deployment tooling, and local management keep working. GoodWifi clients are routed through the VPN with policy routing instead:
+### Policy Routing Tables
 
 ```text
-from 10.42.0.0/24 lookup table 100
-table 100 default dev tun0
+# ip rule show
+997:  from 10.42.0.0/24 to 10.8.0.0/24 lookup main
+997:  from 10.42.0.0/24 to 192.168.100.0/24 lookup main
+998:  from all fwmark 0x65 lookup main              # local_bypass_domains (Binance)
+999:  from all fwmark 0x64 lookup 100               # github_vpn_routes
+1000: from 10.42.0.0/24 lookup 100                  # all other client traffic
 ```
 
-On systems with a route-table name configured, table `100` may display as `github_vpn` in `ip rule show`.
+> [!IMPORTANT]
+> **Do NOT force the host default route to VPN.**
+> Never replace the host default gateway (`ip route replace default dev tun0/awg0`). Keeping host traffic on `eth0` preserves Docker containers, local SSH management, and stable DNS.
 
-Targeted exceptions then use marks and ipsets:
-
-- `github_vpn_routes` + mark `100`: send selected Pi host GitHub traffic through `tun0`
-- `local_bypass_domains` + mark `101`: send selected hotspot client destinations, currently Binance, through `eth0`
-- management subnet rules at priority `997`: let GoodWifi clients reach `10.8.0.0/24`, `192.168.100.0/24`, and `192.168.1.0/24` through the Pi's main routing table
-
-If an old script forces the main default route to `tun0`, the Pi may lose stable DNS, Docker networking, SSH reachability, and deployment access.
+---
 
 ## Components
 
-- `hostapd`: broadcasts the Wi-Fi AP on `wlan0`
-- `dnsmasq`: DHCP only; advertises AdGuard Home as DNS
-- `AdGuard Home`: DNS filtering and ipset population for GoodWifi clients
-- `NetworkManager`: manages Ethernet and the OpenVPN connection named `pi`
-- `configs/90-hotspot-vpn-policy`: installed dispatcher policy
-- `scripts/vpn-routing.sh`: editable mirror of the dispatcher policy
-- `scripts/github-vpn-routes.sh`: loads GitHub IPv4 ranges into `github_vpn_routes`
-- `scripts/openvpn-replay-wrapper`: retains replay protection with an `8192`-packet, `60`-second window for heavily reordered UDP paths
-- `scripts/openvpn-diversion.sh`: safely installs and removes the OpenVPN wrapper diversion
-- `scripts/hotspot-manager.py`: status, restart, and fix CLI
-- `telegrambot/`: optional Telegram remote control
+- `hostapd`: Broadcasts the Wi-Fi AP on `wlan0` (`10.42.0.1/24`).
+- `dnsmasq`: Lightweight DHCP server assigning IP leases (`10.42.0.10`–`10.42.0.100`) and advertising AdGuard Home as DNS (`10.42.0.1:53`).
+- `AdGuard Home`: Dockerized DNS filter on host network; blocks ads and assigns resolved domains into policy ipsets.
+- `NetworkManager` & `awg-quick`: Manages Ethernet, Wi-Fi AP, AmneziaWG, and OpenVPN connections.
+- `configs/90-hotspot-vpn-policy`: Core firewall and policy routing dispatcher script (mirrored at `scripts/vpn-routing.sh`).
+- `configs/20-hotspot-manager`: NetworkManager dispatcher script ensuring VPN policy on network change.
+- `scripts/hotspot-manager.py`: Complete CLI management tool for status, switching backends, and self-healing.
+- `scripts/github-vpn-routes.sh`: Fetches published GitHub IPv4 CIDRs and loads them into `github_vpn_routes`.
+- `telegrambot/`: Python Telegram Bot with interactive inline keyboards, real-time alerts, and VPN switcher.
 
-## Prerequisites
+---
 
-- Raspberry Pi with AP-capable Wi-Fi on `wlan0`
-- Raspberry Pi OS Bookworm or Bullseye
-- Ethernet upstream on `eth0`
-- NetworkManager OpenVPN profile
-- Docker Compose for AdGuard Home and the optional Telegram bot
+## Configuration (`/etc/goodwifi/goodwifi.conf`)
 
-## Quick Start
-
-Install base packages and import the OpenVPN profile:
+Create or modify `/etc/goodwifi/goodwifi.conf` to set project-wide preferences:
 
 ```bash
-sudo apt update
-sudo apt install -y git network-manager network-manager-openvpn docker.io docker-compose-plugin
-git clone <this-repo-url>
-cd vpn
-sudo nmcli connection import type openvpn file /path/to/client.ovpn
-sudo nmcli connection modify "<imported-name>" connection.id pi
-sudo nmcli connection modify pi connection.autoconnect yes ipv4.never-default yes ipv6.never-default yes
-sudo nmcli connection up pi
+# Preferred VPN backend: "auto", "awg0", "wg0", or "tun0"
+VPN_BACKEND="auto"
+
+# VPN MTU (default: 1280 for AmneziaWG/WireGuard, 1400 for OpenVPN)
+VPN_MTU="1280"
+
+# OpenVPN NetworkManager connection profile name
+VPN_UUID="pi"
 ```
 
-Install and apply GoodWifi:
+---
 
-```bash
-chmod +x setup.sh uninstall.sh scripts/hotspot-manager.py scripts/github-vpn-routes.sh
-./setup.sh
-```
+## Multi-Backend VPN Support
 
-If this Pi already has the old Pi-hole container running, stop it first so port `53` is free:
+GoodWifi dynamically adapts to whichever VPN backend is running:
 
-```bash
-cd ~/Projects/vpn/pihole
-docker compose down
-cd ..
-```
-
-Start AdGuard Home:
-
-```bash
-cd adguard
-cp .env.example .env
-nano .env
-docker compose up -d
-cd ..
-```
-
-Open the AdGuard Home first-run wizard:
-
-```text
-http://10.42.0.1:3000
-```
-
-Use `0.0.0.0:53` for DNS and finish the admin account setup. After setup, the web UI is normally available at:
-
-```text
-http://10.42.0.1
-```
-
-For an existing checkout after pulling source changes:
-
-```bash
-cd ~/Projects/vpn
-git pull --ff-only
-./setup.sh
-cd adguard
-docker compose restart
-cd ..
-sudo /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy tun0 apply
-```
-
-## Wi-Fi Name And Password
-
-Default template values:
-
-- SSID: `GoodWifi`
-- Password: `GoodPassword`
-
-Run setup and enter new values when prompted:
-
-```bash
-./setup.sh
-```
-
-For unattended setup:
-
-```bash
-HOTSPOT_SSID="MyWifi" HOTSPOT_PASSWORD="change-this-password" ./setup.sh
-```
-
-## Multi-Backend VPN Support (AmneziaWG & OpenVPN)
-
-GoodWifi supports multiple VPN backends for flexibility and anti-censorship:
-
-- **AmneziaWG (`awg0`)**: Recommended for regions with Deep Packet Inspection (DPI) or censorship. Provides high performance, low latency, and protocol obfuscation.
-- **OpenVPN (`tun0`)**: Traditional OpenVPN tunnel managed by NetworkManager (`nmcli connection up pi`).
-- **WireGuard (`wg0`)**: Standard WireGuard tunnel.
+- **AmneziaWG (`awg0`)**: Recommended for heavily censored environments. Obfuscates WireGuard packet headers (`Jc`, `Jmin`, `Jmax`, `S1`, `S2`, `H1`-`H4`) to bypass DPI blocks.
+- **WireGuard (`wg0`)**: Standard WireGuard protocol for high-speed, low-latency tunneling.
+- **OpenVPN (`tun0`)**: Traditional OpenVPN protocol managed by NetworkManager. Includes automatic `--replay-window 8192 60` diversion wrapper for unstable mobile UDP paths.
 
 ### AmneziaWG / WireGuard Configuration
 
-To ensure AmneziaWG or WireGuard does not hijack the Raspberry Pi's main routing table on `eth0`, you must add `Table = off` under `[Interface]` in your configuration (e.g. `/etc/amnezia/amneziawg/awg0.conf`):
+Ensure `Table = off` is configured in `/etc/amnezia/amneziawg/awg0.conf` or `/etc/wireguard/wg0.conf`:
 
 ```ini
 [Interface]
 Address = 10.8.0.2/24
-PrivateKey = ...
+PrivateKey = <private_key>
 DNS = 1.1.1.1
 Table = off          # Prevents hijacking Pi host default routes
-Jc = 4
+MTU = 1280
 ...
 ```
 
 ### Switching VPN Backends via CLI
 
 ```bash
-# Check current active backend and IP
+# Check current active backend, external IP, and client count
 hotspot --status
 
-# Switch to AmneziaWG
+# Switch active backend to AmneziaWG
 hotspot --switch-vpn awg0
 
-# Switch to OpenVPN
+# Switch active backend to OpenVPN
 hotspot --switch-vpn tun0
 
-# Set back to auto-failover (prefers awg0, falls back to tun0)
+# Set to auto-failover (prefers awg0, falls back to tun0/wg0)
 hotspot --switch-vpn auto
 ```
 
 ### Switching via Telegram Bot
 
-The Telegram bot includes dynamic **Inline Keyboard Buttons** under `/status`:
+The Telegram bot includes interactive **Inline Keyboard Buttons** under `/status`:
 - When running on `awg0`: displays a `[ 🔄 Switch to OpenVPN (tun0) ]` button.
 - When running on `tun0`: displays a `[ ⚡ Switch to AmneziaWG (awg0) ]` button.
 - You can also send `/switch_vpn awg0` or `/switch_vpn tun0` directly as text commands.
 
-## Daily Commands
+---
 
-Aliases installed by `setup.sh`:
+## Daily Management Commands
+
+Convenience aliases installed by `setup.sh`:
 
 ```bash
 alias hotspot="sudo /usr/local/bin/hotspot-manager.py"
@@ -203,382 +132,73 @@ alias hs="sudo /usr/local/bin/hotspot-manager.py --status"
 alias hf="sudo /usr/local/bin/hotspot-manager.py --fix"
 ```
 
-Common operations:
+Useful commands:
 
 ```bash
-hotspot --status
-hotspot --restart
-hotspot --restart-vpn
-hotspot --clients
-hf
+hotspot --status       # View current status, VPN backend, IP, and clients
+hotspot --clients      # List connected client devices and IP/MAC mappings
+hotspot --restart-vpn  # Reconnect active VPN and refresh routes
+hotspot --restart      # Restart hotspot services and reapply firewall policy
+hf                     # Run automated self-healing fix
 ```
 
-`hotspot --restart-vpn` also refreshes GitHub host routes when `/usr/local/bin/github-vpn-routes.sh` is installed.
+---
 
-## Safe On-Demand Auto-Commit
+## AdGuard Home & DNS Policy
 
-Use the helper after an automated edit or generation step:
+GoodWifi clients query `10.42.0.1:53` for DNS. AdGuard Home performs ad-blocking, anti-tracking, and routes specific domains into kernel ipsets:
+
+- `github.com` & subdomains -> `vpn_domains`
+- `binance.com`, `binance.info`, `bnbstatic.com` -> `local_bypass_domains`
+
+### Verifying DNS & Ipsets
 
 ```bash
-cd ~/Projects/vpn
-scripts/auto-commit.sh "chore: update generated VPN files"
-```
+# Test DNS resolution
+dig @10.42.0.1 binance.com
 
-The helper stages tracked and untracked non-ignored files, compares the staged
-content with `HEAD`, and only creates a commit when the content actually
-changed. If files were rewritten with identical content, it exits successfully
-with `No content changes to commit` instead of creating an empty commit or
-failing. Real changes are rebased onto and pushed to the current branch.
+# Verify that Binance IPs were added to bypass set
+sudo ipset list local_bypass_domains
 
-To test the commit locally without pushing:
-
-```bash
-AUTO_COMMIT_PUSH=0 scripts/auto-commit.sh "test: local auto-commit"
-```
-
-## AdGuard Home DNS And Ipsets
-
-GoodWifi clients receive `10.42.0.1` as DNS. AdGuard Home runs on the host network and listens directly on the Pi's port `53`.
-
-The old Pi-hole container must not be running at the same time:
-
-```bash
-cd ~/Projects/vpn/pihole
-docker compose down
-```
-
-AdGuard Home stores its live configuration at:
-
-```text
-adguard/conf/AdGuardHome.yaml
-```
-
-After completing the first-run wizard, merge the reference `dns.ipset` entries from:
-
-```text
-adguard/conf/AdGuardHome.yaml.example
-```
-
-GoodWifi expects these DNS-to-ipset mappings:
-
-- GitHub domains -> `vpn_domains`
-- Binance domains -> `local_bypass_domains`
-
-The default AdGuard DNS filter blocks endpoints used by the Google Analytics
-and Google AdMob dashboards. Merge the `user_rules` allowlist from
-`adguard/conf/AdGuardHome.yaml.example` into the live configuration to keep
-filtering enabled while allowing those dashboards and Analytics collection.
-
-Restart AdGuard Home after changing its config:
-
-```bash
-cd ~/Projects/vpn/adguard
-docker compose restart
-```
-
-Verify DNS:
-
-```bash
-nslookup google.com 10.42.0.1
-nslookup analytics.google.com 10.42.0.1
-docker logs --tail=80 adguardhome
+# Verify GitHub set
 sudo ipset list vpn_domains
-sudo ipset list local_bypass_domains
 ```
 
-## GitHub Through VPN
+> [!TIP]
+> **Ad Blocking on Client Devices:**
+> If ads appear on specific client devices:
+> 1. Check if the device has **Private DNS** or **DNS-over-HTTPS (DoH)** enabled. Private DNS ignores local Wi-Fi DNS and queries public resolvers directly. Set Android Private DNS to "Off" when on GoodWifi.
+> 2. Video in-stream ads (such as YouTube or Facebook video ads) are served from the same CDNs as media streams and cannot be blocked via DNS alone without breaking video playback.
 
-Some ISPs block GitHub on the normal Ethernet path. This project keeps the Pi host default route on `eth0`, then handles GitHub as a targeted exception.
+---
 
-Refresh GitHub routes:
+## GitHub Actions Self-Hosted Runner
+
+The Pi can run a self-hosted GitHub Actions runner (`actions.runner.hhkscripts.RaspberryPi.service`) for automated deployment of containers and code updates.
+
+- GitHub connections automatically route through the active VPN via `github_vpn_routes` and `table 100`.
+- Git SSH operations automatically bind to the active VPN interface (`awg0` or `tun0`) via `~/.ssh/config`.
+- TCP MSS is clamped to PMTU on outbound packets, ensuring TLS handshakes and large payloads never timeout.
+
+---
+
+## Quick Start & Installation
 
 ```bash
-sudo nmcli connection up pi
-sudo /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy tun0 up
-sudo github-vpn-routes.sh
+git clone https://github.com/hhkscripts/vpn.git
+cd vpn
+chmod +x setup.sh uninstall.sh scripts/*.sh scripts/hotspot-manager.py
+sudo ./setup.sh
 ```
 
-`github-vpn-routes.sh` fetches `https://api.github.com/meta` through `tun0`, extracts GitHub IPv4 ranges, loads them into `github_vpn_routes`, and saves netfilter state. The dispatcher marks matching host traffic with fwmark `100`, then sends it to table `100`, whose default route is `tun0`.
-
-Normal VPN restarts keep an existing non-empty GitHub route set, avoiding a
-large metadata download while the tunnel is still settling. Force a fresh
-download when needed:
+To uninstall and clean up all firewall rules, configs, and services:
 
 ```bash
-sudo GITHUB_ROUTES_FORCE_REFRESH=1 github-vpn-routes.sh
+sudo ./uninstall.sh
 ```
 
-Verify:
-
-```bash
-sudo ipset list github_vpn_routes
-sudo iptables -t mangle -S OUTPUT | grep github_vpn_routes
-ip route get 140.82.112.4 mark 100
-```
-
-Expected:
-
-```text
-140.82.112.4 dev tun0 table 100
-```
-
-## Client VPN Through GoodWifi
-
-GoodWifi can be used as the first VPN layer for a client device, then the client
-can start its own VPN profile as a second layer:
-
-```text
-client device -> GoodWifi -> Pi tun0 -> client VPN provider
-```
-
-If a client-side OpenVPN profile uses older CBC ciphers with OpenVPN 2.6, add
-client compatibility lines to that client profile, not to the Pi routing policy:
-
-```conf
-data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305:AES-256-CBC
-data-ciphers-fallback AES-256-CBC
-mssfix 1200
-```
-
-## Binance Through Myanmar ISP
-
-Binance P2P can reject VPN exit IPs. GoodWifi keeps normal client traffic on the VPN but sends Binance destinations through the Pi's Ethernet route:
-
-```text
-GoodWifi client -> wlan0 -> eth0 -> Myanmar ISP
-```
-
-This depends on clients using AdGuard Home DNS (`10.42.0.1`). Android Private DNS, browser DNS-over-HTTPS, another VPN app, or a proxy can bypass AdGuard Home and prevent Binance IPs from entering `local_bypass_domains`.
-
-Verify:
-
-```bash
-nslookup www.binance.com 10.42.0.1
-sudo ipset list local_bypass_domains
-```
-
-Pick one IP from `local_bypass_domains`:
-
-```bash
-ip route get <binance-ip> from 10.42.0.83 iif wlan0 mark 101
-```
-
-Expected:
-
-```text
-<binance-ip> from 10.42.0.83 via <LAN gateway> dev eth0 mark 0x65
-```
-
-Normal non-Binance client traffic should still use the VPN:
-
-```bash
-ip route get 1.1.1.1 from 10.42.0.83 iif wlan0
-```
-
-Expected:
-
-```text
-1.1.1.1 from 10.42.0.83 dev tun0 table 100
-```
-
-## Routing Verification
-
-Host/Pi traffic should use Ethernet:
-
-```bash
-ip route get 1.1.1.1
-```
-
-Expected:
-
-```text
-1.1.1.1 via <LAN gateway> dev eth0
-```
-
-GoodWifi client traffic should use VPN table 100:
-
-```bash
-ip route get 1.1.1.1 from 10.42.0.83 iif wlan0
-```
-
-Expected:
-
-```text
-1.1.1.1 from 10.42.0.83 dev tun0 table 100
-```
-
-Policy rules:
-
-```bash
-ip rule show
-```
-
-Expected entries:
-
-```text
-998: from all fwmark 0x65 lookup main
-999: from all fwmark 0x64 lookup 100
-1000: from 10.42.0.0/24 lookup 100
-```
-
-If table `100` is named locally, the last two lines may show `lookup github_vpn`.
-
-NAT:
-
-```bash
-sudo iptables -t nat -S POSTROUTING | grep -E 'tun0|eth0|10.42'
-```
-
-Expected:
-
-```text
--A POSTROUTING -s 10.42.0.0/24 -o tun0 -j MASQUERADE
--A POSTROUTING -s 10.42.0.0/24 -o eth0 -m set --match-set local_bypass_domains dst -j MASQUERADE
-```
-
-Forward rules:
-
-```bash
-sudo iptables -S GOODWIFI_FORWARD
-```
-
-Expected:
-
-```text
--A GOODWIFI_FORWARD -s 10.42.0.0/24 -i wlan0 -o eth0 -m set --match-set local_bypass_domains dst -j ACCEPT
--A GOODWIFI_FORWARD -d 10.42.0.0/24 -i eth0 -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT
--A GOODWIFI_FORWARD -s 10.42.0.0/24 -i wlan0 -o tun0 -j ACCEPT
--A GOODWIFI_FORWARD -d 10.42.0.0/24 -i tun0 -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT
-```
-
-IPv6 forwarding from GoodWifi is blocked to prevent VPN leaks:
-
-```bash
-sudo ip6tables -S GOODWIFI6_FORWARD
-```
-
-Expected:
-
-```text
--A GOODWIFI6_FORWARD -i wlan0 -j DROP
-```
-
-## Troubleshooting
-
-The dispatcher sets MTU `1400` when `tun0` exists; when it does not, the MTU step is skipped safely. TCP forwarding continues to use the existing path-MTU MSS clamp. Setup does not mutate the NetworkManager VPN profile.
-
-The setup also installs a larger anti-replay window with Debian's `dpkg-divert`: the package-owned executable remains at `/usr/sbin/openvpn.real`, while `/usr/sbin/openvpn` adds `--replay-window 8192 60`. Replay protection remains enabled. Setup is idempotent only for the exact local diversion and repository wrapper; it requires both installed files to be owned by `root:root` and refuses stale, conflicting, or unrecognized states instead of overwriting them. Install and removal are serialized with `/run/lock/goodwifi-openvpn-diversion.lock`. `uninstall.sh` validates and removes this diversion before changing any other system state, then restores the package executable.
-
-If setup or uninstall reports a diversion error, do not delete or rename either executable and do not use `dpkg-divert --remove` manually. Capture the state first:
-
-```bash
-sudo dpkg-divert --list /usr/sbin/openvpn
-sudo stat -c '%U:%G %a %n' /usr/sbin/openvpn /usr/sbin/openvpn.real
-sudo cmp --silent scripts/openvpn-replay-wrapper /usr/sbin/openvpn \
-  && echo 'managed wrapper matches' || echo 'wrapper differs or is missing'
-```
-
-An empty registration together with a matching `/usr/sbin/openvpn` wrapper or any `/usr/sbin/openvpn.real` is intentionally treated as stale and requires administrator recovery. Preserve both files and the command output before repairing package state. For an exact registered diversion, correct unexpected ownership only after verifying file contents and provenance, then rerun setup or uninstall. If rollback itself fails, leave both paths untouched and recover OpenVPN with the Debian package tools from a separate management connection; the script will not claim success for a partial restoration.
-
-Check the active values:
-
-```bash
-ip -o link show tun0
-pgrep -af '^/usr/sbin/openvpn.real '
-```
-
-Check overall status:
-
-```bash
-hotspot --status
-```
-
-Restart runtime services and reapply policy:
-
-```bash
-hotspot --restart
-```
-
-Reconnect only the VPN and refresh GitHub routes:
-
-```bash
-hotspot --restart-vpn
-```
-
-Run the manager's automatic fix path:
-
-```bash
-hf
-```
-
-Check connected clients:
-
-```bash
-sudo hostapd_cli all_sta
-sudo iw dev wlan0 station dump
-sudo cat /var/lib/misc/dnsmasq.leases
-ip neigh show dev wlan0
-```
-
-`dnsmasq.leases` can include stale leases; `hostapd_cli`, `iw`, and reachable neighbor entries are better proof that a client is currently attached.
-
-## Old Dispatcher Scripts
-
-These old dispatcher scripts must stay non-executable or removed because they force the Pi host default route through the VPN:
-
-```text
-/etc/NetworkManager/dispatcher.d/10-vpn-routing
-/etc/NetworkManager/dispatcher.d/50-vpn-route
-/etc/NetworkManager/dispatcher.d/99-vpn-routing
-```
-
-Check:
-
-```bash
-ls -l /etc/NetworkManager/dispatcher.d/10-vpn-routing \
-      /etc/NetworkManager/dispatcher.d/50-vpn-route \
-      /etc/NetworkManager/dispatcher.d/99-vpn-routing
-```
-
-Expected permission starts with `-rw-`, not `-rwx`.
-
-`setup.sh` disables these scripts when they exist.
-
-## Important Files
-
-```text
-configs/90-hotspot-vpn-policy
-scripts/vpn-routing.sh
-scripts/github-vpn-routes.sh
-scripts/openvpn-replay-wrapper
-scripts/openvpn-diversion.sh
-scripts/hotspot-manager.py
-adguard/docker-compose.yml
-adguard/conf/AdGuardHome.yaml.example
-telegrambot/README.md
-```
-
-Installed live files:
-
-```text
-/etc/hostapd/hostapd.conf
-/etc/dnsmasq.conf
-/etc/NetworkManager/dispatcher.d/20-hotspot-manager
-/etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy
-/usr/local/bin/hotspot-manager.py
-/usr/local/bin/github-vpn-routes.sh
-/usr/sbin/openvpn
-/usr/sbin/openvpn.real
-```
-
-## Uninstall
-
-```bash
-./uninstall.sh
-```
-
-`uninstall.sh` removes installed system files, aliases, and runtime firewall/policy-route rules. It does not delete this project directory.
+---
 
 ## License
 
-This project is licensed under the MIT License. See `LICENSE`.
+This project is licensed under the MIT License.
