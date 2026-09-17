@@ -20,13 +20,7 @@ jobs:
       - name: Resolve target deployment directory
         id: target
         run: |
-          if [ -n "${{ vars.DEPLOY_DIR || vars.RUNNER_REPO_DIR }}" ]; then
-            DEPLOY_PATH="${{ vars.DEPLOY_DIR || vars.RUNNER_REPO_DIR }}"
-          elif [ -d "/home/hhk/Projects/vpn/.git" ]; then
-            DEPLOY_PATH="/home/hhk/Projects/vpn"
-          else
-            DEPLOY_PATH="${{ github.workspace }}"
-          fi
+          DEPLOY_PATH="${{ vars.DEPLOY_DIR || vars.RUNNER_REPO_DIR || github.workspace }}"
           echo "deploy_path=$DEPLOY_PATH" >> "$GITHUB_OUTPUT"
           echo "DEPLOY_PATH=$DEPLOY_PATH" >> "$GITHUB_ENV"
           echo "Target deployment directory: $DEPLOY_PATH"
