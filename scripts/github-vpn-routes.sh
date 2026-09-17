@@ -6,6 +6,9 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 # Load optional config override
 # shellcheck source=/dev/null
 [ -f /etc/goodwifi/goodwifi.conf ] && . /etc/goodwifi/goodwifi.conf
@@ -30,6 +33,20 @@ GITHUB_IPSET="${GITHUB_IPSET:-github_vpn_routes}"
 META_URL="${GITHUB_META_URL:-https://api.github.com/meta}"
 FORCE_REFRESH="${GITHUB_ROUTES_FORCE_REFRESH:-0}"
 
+if [ -z "${GITHUB_PRESEEDED_RANGES:-}" ]; then
+    if [ -f "$PROJECT_DIR/configs/github-ipv4-ranges.txt" ]; then
+        PRESEEDED_RANGES="$PROJECT_DIR/configs/github-ipv4-ranges.txt"
+    elif [ -f "/etc/goodwifi/github-ipv4-ranges.txt" ]; then
+        PRESEEDED_RANGES="/etc/goodwifi/github-ipv4-ranges.txt"
+    elif [ -f "/home/hhk/Projects/vpn/configs/github-ipv4-ranges.txt" ]; then
+        PRESEEDED_RANGES="/home/hhk/Projects/vpn/configs/github-ipv4-ranges.txt"
+    else
+        PRESEEDED_RANGES=""
+    fi
+else
+    PRESEEDED_RANGES="$GITHUB_PRESEEDED_RANGES"
+fi
+
 log() {
     printf '%s\n' "$1"
 }
@@ -51,15 +68,25 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-if ! ip link show "$VPN_IF" >/dev/null 2>&1; then
-    log "Interface '$VPN_IF' is not available. Connect VPN first."
-    exit 1
-fi
+ipset create "$GITHUB_IPSET" hash:net family inet 2>/dev/null || true
 
 existing_count=0
 if ipset list "$GITHUB_IPSET" >/dev/null 2>&1; then
     existing_count="$(ipset list "$GITHUB_IPSET" | awk '/Number of entries:/ {print $4; exit}')"
     existing_count="${existing_count:-0}"
+fi
+
+# If ipset is currently empty, quickly load pre-seeded local ranges first
+if [ "$existing_count" -eq 0 ] && [ -n "$PRESEEDED_RANGES" ] && [ -s "$PRESEEDED_RANGES" ]; then
+    log "Loading pre-seeded GitHub IPv4 ranges from $PRESEEDED_RANGES..."
+    preseed_added=0
+    while IFS= read -r cidr; do
+        [ -n "$cidr" ] || continue
+        ipset add "$GITHUB_IPSET" "$cidr" -exist
+        preseed_added=$((preseed_added + 1))
+    done < "$PRESEEDED_RANGES"
+    existing_count="$preseed_added"
+    log "Loaded $existing_count pre-seeded GitHub IPv4 ranges into '$GITHUB_IPSET'."
 fi
 
 if [ "$existing_count" -gt 0 ] && [ "$FORCE_REFRESH" != "1" ]; then
@@ -68,13 +95,29 @@ if [ "$existing_count" -gt 0 ] && [ "$FORCE_REFRESH" != "1" ]; then
     exit 0
 fi
 
+if ! ip link show "$VPN_IF" >/dev/null 2>&1; then
+    if [ "$existing_count" -gt 0 ]; then
+        log "Interface '$VPN_IF' not ready for refresh; keeping $existing_count existing ranges."
+        exit 0
+    fi
+    log "Interface '$VPN_IF' is not available. Connect VPN first."
+    exit 1
+fi
+
 tmp_json="$(mktemp)"
 tmp_ranges="$(mktemp)"
 trap 'rm -f "$tmp_json" "$tmp_ranges"' EXIT
 
 log "Fetching GitHub meta ranges through $VPN_IF..."
-curl -fsS --interface "$VPN_IF" --connect-timeout 10 --max-time 60 \
-    --retry 3 --retry-delay 2 --retry-all-errors "$META_URL" -o "$tmp_json"
+if ! curl -fsS --interface "$VPN_IF" --connect-timeout 10 --max-time 60 \
+    --retry 3 --retry-delay 2 --retry-all-errors "$META_URL" -o "$tmp_json"; then
+    if [ "$existing_count" -gt 0 ]; then
+        log "Download failed, but keeping existing/pre-seeded $existing_count ranges."
+        exit 0
+    fi
+    log "Failed to download GitHub ranges and no local cache available."
+    exit 1
+fi
 
 python3 - "$tmp_json" > "$tmp_ranges" <<'PY'
 import ipaddress
@@ -101,10 +144,12 @@ PY
 
 if [ ! -s "$tmp_ranges" ]; then
     log "No GitHub IPv4 ranges found in meta response."
+    if [ "$existing_count" -gt 0 ]; then
+        exit 0
+    fi
     exit 1
 fi
 
-ipset create "$GITHUB_IPSET" hash:net family inet 2>/dev/null || true
 ipset flush "$GITHUB_IPSET"
 
 added_count=0
@@ -115,6 +160,16 @@ while IFS= read -r cidr; do
 done < "$tmp_ranges"
 
 log "Loaded $added_count GitHub IPv4 ranges into ipset '$GITHUB_IPSET'."
+
+# Save back to pre-seeded local file if writable
+if [ -n "$PRESEEDED_RANGES" ] && [ -w "$PRESEEDED_RANGES" ]; then
+    cp "$tmp_ranges" "$PRESEEDED_RANGES" 2>/dev/null || true
+fi
+if [ -f "$PROJECT_DIR/configs/github-ipv4-ranges.txt" ] && [ -w "$PROJECT_DIR/configs/github-ipv4-ranges.txt" ] && [ "$PRESEEDED_RANGES" != "$PROJECT_DIR/configs/github-ipv4-ranges.txt" ]; then
+    cp "$tmp_ranges" "$PROJECT_DIR/configs/github-ipv4-ranges.txt" 2>/dev/null || true
+elif [ -f "/home/hhk/Projects/vpn/configs/github-ipv4-ranges.txt" ] && [ -w "/home/hhk/Projects/vpn/configs/github-ipv4-ranges.txt" ] && [ "$PRESEEDED_RANGES" != "/home/hhk/Projects/vpn/configs/github-ipv4-ranges.txt" ]; then
+    cp "$tmp_ranges" "/home/hhk/Projects/vpn/configs/github-ipv4-ranges.txt" 2>/dev/null || true
+fi
 
 if command -v netfilter-persistent >/dev/null 2>&1; then
     netfilter-persistent save

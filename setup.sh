@@ -233,6 +233,7 @@ if [ ! -f /etc/goodwifi/goodwifi.conf ]; then
   echo 'VPN_BACKEND="auto"' | sudo tee /etc/goodwifi/goodwifi.conf >/dev/null
   sudo chmod 0644 /etc/goodwifi/goodwifi.conf
 fi
+copy_file "$CONFIG_DIR/github-ipv4-ranges.txt" /etc/goodwifi/github-ipv4-ranges.txt 0644
 
 log_info "Configuring dhcpcd wlan0 block"
 backup_file /etc/dhcpcd.conf
