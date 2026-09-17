@@ -8,7 +8,7 @@ on:
 
 jobs:
   deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    if: ${{ (github.repository == 'hhkscripts/vpn' || vars.ENABLE_SELF_HOSTED_DEPLOY == 'true') && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')) }}
     runs-on: self-hosted
     environment: production
     steps:
@@ -17,11 +17,26 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Pull latest source on Pi runner
-        run: bash scripts/github-runner-pull.sh
+      - name: Resolve target deployment directory
+        id: target
+        run: |
+          if [ -n "${{ vars.DEPLOY_DIR || vars.RUNNER_REPO_DIR }}" ]; then
+            DEPLOY_PATH="${{ vars.DEPLOY_DIR || vars.RUNNER_REPO_DIR }}"
+          elif [ -d "/home/hhk/Projects/vpn/.git" ]; then
+            DEPLOY_PATH="/home/hhk/Projects/vpn"
+          else
+            DEPLOY_PATH="${{ github.workspace }}"
+          fi
+          echo "deploy_path=$DEPLOY_PATH" >> "$GITHUB_OUTPUT"
+          echo "DEPLOY_PATH=$DEPLOY_PATH" >> "$GITHUB_ENV"
+          echo "Target deployment directory: $DEPLOY_PATH"
+
+      - name: Pull latest source on runner
+        run: |
+          RUNNER_REPO_DIR="${{ env.DEPLOY_PATH }}" bash scripts/github-runner-pull.sh
 
       - name: Create .env file from Secrets
-        working-directory: /home/hhk/Projects/vpn
+        working-directory: ${{ env.DEPLOY_PATH }}
         run: |
           cd telegrambot
           echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" > .env
@@ -35,7 +50,7 @@ jobs:
           fi
 
       - name: Build and Run with Docker Compose
-        working-directory: /home/hhk/Projects/vpn
+        working-directory: ${{ env.DEPLOY_PATH }}
         run: |
           cd telegrambot
           docker compose down --remove-orphans || true
@@ -45,7 +60,7 @@ jobs:
           docker compose ps
 
       - name: Verify Deployment
-        working-directory: /home/hhk/Projects/vpn
+        working-directory: ${{ env.DEPLOY_PATH }}
         run: |
           cd telegrambot
           if docker compose ps | grep -q "Up"; then

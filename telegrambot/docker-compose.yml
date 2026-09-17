@@ -34,11 +34,10 @@ services:
       - NET_ADMIN
       - SYS_ADMIN
       - NET_RAW
-    working_dir: /host/home/hhk/Projects/vpn/telegrambot
+    working_dir: /app
     command: >
       bash -c "
         export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin &&
-        cd /host/home/hhk/Projects/vpn/telegrambot &&
         exec python3 bot.py
       "
     healthcheck:
