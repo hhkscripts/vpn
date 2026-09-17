@@ -164,6 +164,28 @@ ensure_docker_installed() {
   fi
 }
 
+ensure_openvpn_installed() {
+  if [ ! -x /usr/sbin/openvpn ] && [ ! -x /usr/sbin/openvpn.real ]; then
+    log_info "OpenVPN executable not found. Pre-installing openvpn package..."
+    sudo apt-get update -qq 2>/dev/null || true
+    sudo apt-get install -y -qq openvpn 2>/dev/null || sudo apt-get install -y openvpn
+  fi
+}
+
+ensure_resolver_port_available() {
+  if systemctl is-active systemd-resolved >/dev/null 2>&1; then
+    if [ ! -f /etc/systemd/resolved.conf.d/adguard-disable-stub.conf ]; then
+      log_info "Disabling systemd-resolved DNSStubListener to free port 53 for AdGuard Home"
+      sudo mkdir -p /etc/systemd/resolved.conf.d
+      cat <<'RESOLVED_EOF' | sudo tee /etc/systemd/resolved.conf.d/adguard-disable-stub.conf >/dev/null
+[Resolve]
+DNSStubListener=no
+RESOLVED_EOF
+      sudo systemctl restart systemd-resolved 2>/dev/null || true
+    fi
+  fi
+}
+
 stop_legacy_pihole_if_running() {
   if ! command -v docker >/dev/null 2>&1; then
     return
@@ -182,6 +204,11 @@ restart_adguard_if_configured() {
     return
   fi
 
+  if [ ! -f "$compose_dir/.env" ] && [ -f "$compose_dir/.env.example" ]; then
+    log_info "Initializing AdGuard Home .env from .env.example"
+    cp "$compose_dir/.env.example" "$compose_dir/.env"
+  fi
+
   if [ ! -f "$compose_dir/.env" ]; then
     log_warn "AdGuard Home .env not found. Start it later with: cd adguard && cp .env.example .env && docker compose up -d"
     return
@@ -192,6 +219,7 @@ restart_adguard_if_configured() {
     return
   fi
 
+  ensure_resolver_port_available
   stop_legacy_pihole_if_running
 
   # Migrate legacy local_bypass_domains to local_routes in existing AdGuard configuration
@@ -205,6 +233,39 @@ restart_adguard_if_configured() {
   log_info "Starting/restarting AdGuard Home DNS service"
   if ! (cd "$compose_dir" && sudo docker compose up -d); then
     log_warn "Could not start AdGuard Home. Retry with: cd adguard && docker compose up -d"
+  fi
+}
+
+restart_telegrambot_if_configured() {
+  local compose_dir="$PROJECT_DIR/telegrambot"
+
+  if [ ! -f "$compose_dir/docker-compose.yml" ]; then
+    return
+  fi
+
+  if [ ! -f "$compose_dir/.env" ] && [ -f "$compose_dir/.env.example" ]; then
+    log_info "Initializing Telegram Bot .env from .env.example"
+    cp "$compose_dir/.env.example" "$compose_dir/.env"
+  fi
+
+  if [ ! -f "$compose_dir/.env" ]; then
+    return
+  fi
+
+  if ! command -v docker >/dev/null 2>&1; then
+    return
+  fi
+
+  local token
+  token="$(grep -E '^TELEGRAM_BOT_TOKEN=' "$compose_dir/.env" 2>/dev/null | cut -d= -f2- | tr -d ' "' || true)"
+  if [ -z "$token" ] || [ "$token" = "your_bot_token_here" ]; then
+    log_info "Telegram Bot token not configured yet. Set TELEGRAM_BOT_TOKEN in telegrambot/.env to activate."
+    return
+  fi
+
+  log_info "Starting/restarting Telegram bot service"
+  if ! (cd "$compose_dir" && sudo docker compose up -d); then
+    log_warn "Could not start Telegram bot. Retry with: cd telegrambot && docker compose up -d"
   fi
 }
 
@@ -268,6 +329,8 @@ for file in "${required_files[@]}"; do
   fi
 done
 
+ensure_openvpn_installed
+
 log_info "Validating and installing the OpenVPN replay-window wrapper"
 sudo "$SCRIPT_DIR/openvpn-diversion.sh" check "$SCRIPT_DIR/openvpn-replay-wrapper"
 sudo "$SCRIPT_DIR/openvpn-diversion.sh" install "$SCRIPT_DIR/openvpn-replay-wrapper"
@@ -276,7 +339,17 @@ configure_hotspot_credentials
 
 log_info "Installing required packages"
 sudo apt update
-sudo apt install -y hostapd dnsmasq ipset ipset-persistent iptables-persistent netfilter-persistent python3 python3-pip curl wget util-linux network-manager iw wireless-tools git ca-certificates
+sudo apt install -y \
+  hostapd dnsmasq \
+  ipset ipset-persistent iptables iptables-persistent netfilter-persistent \
+  python3 python3-pip curl wget util-linux \
+  network-manager iw wireless-tools rfkill \
+  dnsutils iputils-ping iproute2 procps kmod openvpn \
+  git ca-certificates || true
+if ! command -v nslookup >/dev/null 2>&1; then
+  sudo apt install -y bind9-dnsutils 2>/dev/null || sudo apt install -y dnsutils 2>/dev/null || true
+fi
+sudo apt install -y wireguard-tools 2>/dev/null || true
 ensure_docker_installed
 
 log_info "Cleaning up legacy ipsets if migrating"
@@ -364,9 +437,19 @@ fi
 log_info "Configuring system forwarding and wlan0 ownership"
 sudo sysctl -w net.ipv4.ip_forward=1
 ensure_line 'net.ipv4.ip_forward=1' /etc/sysctl.conf
+tmp_sysctl="$(mktemp)"
+cat <<'SYSCTL_EOF' > "$tmp_sysctl"
+net.ipv4.ip_forward=1
+net.ipv4.conf.all.forwarding=1
+SYSCTL_EOF
+copy_file "$tmp_sysctl" /etc/sysctl.d/99-goodwifi.conf 0644
+rm -f "$tmp_sysctl"
+sudo sysctl -p /etc/sysctl.d/99-goodwifi.conf 2>/dev/null || sudo sysctl --system 2>/dev/null || true
+
 sudo systemctl stop wpa_supplicant 2>/dev/null || true
 sudo systemctl disable wpa_supplicant 2>/dev/null || true
 sudo rfkill unblock wifi 2>/dev/null || true
+sudo rfkill unblock all 2>/dev/null || true
 
 log_info "Disabling old route scripts that force host default via VPN"
 sudo chmod -x /etc/NetworkManager/dispatcher.d/10-vpn-routing 2>/dev/null || true
@@ -393,6 +476,7 @@ sudo systemctl unmask hostapd 2>/dev/null || true
 sudo systemctl enable hostapd dnsmasq 2>/dev/null || true
 sudo systemctl restart hostapd dnsmasq 2>/dev/null || true
 restart_adguard_if_configured
+restart_telegrambot_if_configured
 
 if ! vpn_has_ipv4; then
   connect_vpn_if_available

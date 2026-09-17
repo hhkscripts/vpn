@@ -98,6 +98,12 @@ restore_or_remove /usr/local/bin/hotspot-manager.py "$BACKUP_DIR"
 restore_or_remove /usr/local/bin/github-vpn-routes.sh "$BACKUP_DIR"
 restore_or_remove /etc/goodwifi/github-ipv4-ranges.txt "$BACKUP_DIR"
 restore_or_remove /etc/goodwifi/goodwifi.conf "$BACKUP_DIR"
+restore_or_remove /etc/sysctl.d/99-goodwifi.conf "$BACKUP_DIR"
+sudo rm -f /etc/systemd/resolved.conf.d/adguard-disable-stub.conf 2>/dev/null || true
+if systemctl is-active systemd-resolved >/dev/null 2>&1; then
+  sudo systemctl restart systemd-resolved 2>/dev/null || true
+fi
+sudo sysctl --system 2>/dev/null || true
 sudo rmdir /etc/goodwifi 2>/dev/null || true
 if [ -n "$BACKUP_DIR" ] && [ -e "$BACKUP_DIR/etc/dhcpcd.conf" ]; then
   sudo cp -a "$BACKUP_DIR/etc/dhcpcd.conf" /etc/dhcpcd.conf
