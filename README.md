@@ -9,7 +9,7 @@ GoodWifi is a resilient Raspberry Pi Wi-Fi hotspot designed to defeat censorship
 - **Multi-Backend VPN**: Native support for **AmneziaWG (`awg0`)** (obfuscated anti-DPI WireGuard), **WireGuard (`wg0`)**, and **OpenVPN (`tun0`)**, with automatic health checking and failover.
 - **Selective Policy Routing**: Hotspot client traffic goes through the active VPN; Raspberry Pi host services, SSH, and Docker containers remain reachable on Ethernet (`eth0`).
 - **Selective GitHub Routing**: Routes GitHub API, Git, and GitHub Actions runner traffic through the VPN to bypass local censorship while keeping the rest of host traffic on local LAN.
-- **Selective Local Bypass (Binance / P2P)**: Automatically routes specific services (such as Binance) through the local Myanmar ISP gateway via DNS ipsets (`local_bypass_domains`) to avoid VPN geo-blocking.
+- **Selective Local Bypass (Binance / P2P)**: Automatically routes specific services (such as Binance) through the local Myanmar ISP gateway via DNS ipsets (`local_routes`) to avoid VPN geo-blocking.
 - **AdGuard Home DNS Filtering**: Blocks ads and trackers network-wide while dynamically populating policy routing ipsets.
 - **Telegram Bot Remote Control**: Manage VPN backends, inspect connected clients, and monitor system health with interactive inline buttons and Telegram Premium status emojis.
 
@@ -25,7 +25,7 @@ Traffic is split dynamically using Linux policy routing, packet marks, and ipset
 | **Binance / Local Bypass** | `eth0` (Local ISP) | `fwmark 0x65` -> `table main` | Bypasses VPN so P2P exchanges see local Myanmar IP |
 | **GoodWifi Management Subnets** | `eth0` / Local LAN | `priority 997` -> `table main` | Clients can access Pi services (`10.42.0.1`, LAN IPs, VPN IPs) |
 | **Raspberry Pi Host Traffic** | `eth0` (Local ISP) | Default route (`table main`) | Fast, unaffected host networking, SSH, and Docker |
-| **Selected GitHub Host Traffic** | Active VPN (`awg0` / `tun0`) | `fwmark 0x64` (`github_vpn_routes`) | Ensures Git, GitHub Actions Runner, and APIs never timeout |
+| **Selected GitHub Host Traffic** | Active VPN (`awg0` / `tun0`) | `fwmark 0x64` (`vpn_routes`) | Ensures Git, GitHub Actions Runner, and APIs never timeout |
 
 ### Policy Routing Tables
 
@@ -33,8 +33,8 @@ Traffic is split dynamically using Linux policy routing, packet marks, and ipset
 # ip rule show
 997:  from 10.42.0.0/24 to 10.8.0.0/24 lookup main
 997:  from 10.42.0.0/24 to 192.168.100.0/24 lookup main
-998:  from all fwmark 0x65 lookup main              # local_bypass_domains (Binance)
-999:  from all fwmark 0x64 lookup 100               # github_vpn_routes
+998:  from all fwmark 0x65 lookup main              # local_routes (Binance)
+999:  from all fwmark 0x64 lookup 100               # vpn_routes
 1000: from 10.42.0.0/24 lookup 100                  # all other client traffic
 ```
 
@@ -53,7 +53,7 @@ Traffic is split dynamically using Linux policy routing, packet marks, and ipset
 - `configs/90-hotspot-vpn-policy`: Core firewall and policy routing dispatcher script (mirrored at `scripts/vpn-routing.sh`).
 - `configs/20-hotspot-manager`: NetworkManager dispatcher script ensuring VPN policy on network change.
 - `scripts/hotspot-manager.py`: Complete CLI management tool for status, switching backends, and self-healing.
-- `scripts/github-vpn-routes.sh`: Fetches published GitHub IPv4 CIDRs and loads them into `github_vpn_routes`.
+- `scripts/github-vpn-routes.sh`: Fetches published GitHub IPv4 CIDRs and loads them into `vpn_routes`.
 - `telegrambot/`: Python Telegram Bot with interactive inline keyboards, real-time alerts, and VPN switcher.
 
 ---
@@ -77,7 +77,7 @@ VPN_MTU=""
 VPN_UUID="pi"
 
 # GitHub VPN routes ipset name
-GITHUB_IPSET="github_vpn_routes"
+GITHUB_IPSET="vpn_routes"
 
 # Network Interfaces
 HOTSPOT_IF="wlan0"
@@ -168,7 +168,7 @@ hf                     # Run automated self-healing fix
 GoodWifi clients query `10.42.0.1:53` for DNS. AdGuard Home performs ad-blocking, anti-tracking, and routes specific domains into kernel ipsets:
 
 - `github.com` & subdomains -> `vpn_domains`
-- `binance.com`, `binance.info`, `bnbstatic.com` -> `local_bypass_domains`
+- `binance.com`, `binance.info`, `bnbstatic.com` -> `local_routes`
 
 ### Verifying DNS & Ipsets
 
@@ -177,7 +177,7 @@ GoodWifi clients query `10.42.0.1:53` for DNS. AdGuard Home performs ad-blocking
 dig @10.42.0.1 binance.com
 
 # Verify that Binance IPs were added to bypass set
-sudo ipset list local_bypass_domains
+sudo ipset list local_routes
 
 # Verify GitHub set
 sudo ipset list vpn_domains
@@ -195,7 +195,7 @@ sudo ipset list vpn_domains
 
 The Pi can run a self-hosted GitHub Actions runner (`actions.runner.hhkscripts.RaspberryPi.service`) for automated deployment of containers and code updates.
 
-- GitHub connections automatically route through the active VPN via `github_vpn_routes` and `table 100`.
+- GitHub connections automatically route through the active VPN via `vpn_routes` and `table 100`.
 - Git SSH operations automatically bind to the active VPN interface (`awg0` or `tun0`) via `~/.ssh/config`.
 - TCP MSS is clamped to PMTU on outbound packets, ensuring TLS handshakes and large payloads never timeout.
 

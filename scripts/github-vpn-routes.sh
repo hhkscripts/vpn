@@ -29,7 +29,8 @@ if [ -z "${VPN_IF:-}" ]; then
         VPN_IF="tun0"
     fi
 fi
-GITHUB_IPSET="${GITHUB_IPSET:-github_vpn_routes}"
+VPN_ROUTES_IPSET="${VPN_ROUTES_IPSET:-${GITHUB_IPSET:-vpn_routes}}"
+GITHUB_IPSET="$VPN_ROUTES_IPSET"
 META_URL="${GITHUB_META_URL:-https://api.github.com/meta}"
 FORCE_REFRESH="${GITHUB_ROUTES_FORCE_REFRESH:-0}"
 
@@ -71,6 +72,10 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 ipset create "$GITHUB_IPSET" hash:net family inet 2>/dev/null || true
+if [ "$GITHUB_IPSET" != "github_vpn_routes" ] && ipset list github_vpn_routes >/dev/null 2>&1; then
+    ipset flush github_vpn_routes 2>/dev/null || true
+    ipset destroy github_vpn_routes 2>/dev/null || true
+fi
 
 existing_count=0
 if ipset list "$GITHUB_IPSET" >/dev/null 2>&1; then

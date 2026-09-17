@@ -147,6 +147,14 @@ restart_adguard_if_configured() {
 
   stop_legacy_pihole_if_running
 
+  # Migrate legacy local_bypass_domains to local_routes in existing AdGuard configuration
+  if [ -f "$compose_dir/conf/AdGuardHome.yaml" ]; then
+    if sudo grep -q "local_bypass_domains" "$compose_dir/conf/AdGuardHome.yaml" 2>/dev/null; then
+      log_info "Migrating AdGuard Home ipset rule from local_bypass_domains to local_routes"
+      sudo sed -i 's#/local_bypass_domains#/local_routes#g' "$compose_dir/conf/AdGuardHome.yaml"
+    fi
+  fi
+
   log_info "Starting/restarting AdGuard Home DNS service"
   if ! (cd "$compose_dir" && sudo docker compose up -d); then
     log_warn "Could not start AdGuard Home. Retry with: cd adguard && docker compose up -d"
@@ -222,6 +230,14 @@ configure_hotspot_credentials
 log_info "Installing required packages"
 sudo apt update
 sudo apt install -y hostapd dnsmasq ipset ipset-persistent iptables-persistent netfilter-persistent python3 python3-pip curl wget util-linux
+
+log_info "Cleaning up legacy ipsets if migrating"
+for legacy_set in github_vpn_routes local_bypass_domains; do
+  if sudo ipset list "$legacy_set" >/dev/null 2>&1; then
+    sudo ipset flush "$legacy_set" 2>/dev/null || true
+    sudo ipset destroy "$legacy_set" 2>/dev/null || true
+  fi
+done
 
 log_info "Configuring GoodWifi default configuration"
 backup_file /etc/goodwifi/goodwifi.conf

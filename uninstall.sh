@@ -79,6 +79,12 @@ elif [ -x /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy ]; then
     sudo /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy "$iface" cleanup 2>/dev/null || true
   done
 fi
+# Flush and destroy all active and legacy ipsets
+for set_name in vpn_routes local_routes github_vpn_routes local_bypass_domains vpn_domains; do
+  sudo ipset flush "$set_name" 2>/dev/null || true
+  sudo ipset destroy "$set_name" 2>/dev/null || true
+done
+
 sudo netfilter-persistent save
 
 restore_or_remove /etc/hostapd/hostapd.conf "$BACKUP_DIR"

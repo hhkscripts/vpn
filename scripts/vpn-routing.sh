@@ -19,8 +19,12 @@ MANAGEMENT_RULE_PRIORITY="${MANAGEMENT_RULE_PRIORITY:-997}"
 FWMARK="${FWMARK:-100}"
 BYPASS_FWMARK="${BYPASS_FWMARK:-101}"
 VPN_IPSET="${VPN_IPSET:-vpn_domains}"
-GITHUB_IPSET="${GITHUB_IPSET:-github_vpn_routes}"
-LOCAL_BYPASS_IPSET="${LOCAL_BYPASS_IPSET:-local_bypass_domains}"
+VPN_ROUTES_IPSET="${VPN_ROUTES_IPSET:-${GITHUB_IPSET:-vpn_routes}}"
+LOCAL_ROUTES_IPSET="${LOCAL_ROUTES_IPSET:-${LOCAL_BYPASS_IPSET:-local_routes}}"
+GITHUB_IPSET="$VPN_ROUTES_IPSET"
+LOCAL_BYPASS_IPSET="$LOCAL_ROUTES_IPSET"
+LEGACY_GITHUB_IPSET="github_vpn_routes"
+LEGACY_LOCAL_IPSET="local_bypass_domains"
 IPTABLES_CHAIN="${IPTABLES_CHAIN:-GOODWIFI_FORWARD}"
 IP6TABLES_CHAIN="${IP6TABLES_CHAIN:-GOODWIFI6_FORWARD}"
 MANAGEMENT_SUBNETS="${MANAGEMENT_SUBNETS:-10.8.0.0/24 192.168.100.0/24 192.168.1.0/24}"
@@ -151,8 +155,19 @@ apply_policy() {
         fi
     fi
     ipset create "$VPN_IPSET" hash:ip 2>/dev/null || true
-    ipset create "$GITHUB_IPSET" hash:net family inet 2>/dev/null || true
-    ipset create "$LOCAL_BYPASS_IPSET" hash:ip 2>/dev/null || true
+    ipset create "$VPN_ROUTES_IPSET" hash:net family inet 2>/dev/null || true
+    ipset create "$LOCAL_ROUTES_IPSET" hash:ip 2>/dev/null || true
+    if [ "$VPN_ROUTES_IPSET" != "$LEGACY_GITHUB_IPSET" ]; then
+        remove_rule mangle OUTPUT -m set --match-set "$LEGACY_GITHUB_IPSET" dst -j MARK --set-mark "$FWMARK"
+        ipset destroy "$LEGACY_GITHUB_IPSET" 2>/dev/null || true
+    fi
+    if [ "$LOCAL_ROUTES_IPSET" != "$LEGACY_LOCAL_IPSET" ]; then
+        remove_rule nat POSTROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LEGACY_LOCAL_IPSET" dst -o "$LAN_IF" -j MASQUERADE
+        remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LEGACY_LOCAL_IPSET" dst -j MARK --set-mark "$BYPASS_FWMARK"
+        remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LEGACY_LOCAL_IPSET" dst -j MARK --set-mark 0
+        remove_rule "$IPTABLES_CHAIN" -i "$HOTSPOT_IF" -o "$LAN_IF" -s "$HOTSPOT_SUBNET" -m set --match-set "$LEGACY_LOCAL_IPSET" dst -j ACCEPT
+        ipset destroy "$LEGACY_LOCAL_IPSET" 2>/dev/null || true
+    fi
     ensure_filter_chain "$IPTABLES_CHAIN"
 
     remove_rule mangle OUTPUT -m set --match-set "$VPN_IPSET" dst -j MARK --set-mark "$FWMARK"
@@ -170,8 +185,10 @@ apply_policy() {
         remove_rule nat POSTROUTING -s "$HOTSPOT_SUBNET" -d "$subnet" -o "$LAN_IF" -j MASQUERADE
     done
     remove_rule nat POSTROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -o "$LAN_IF" -j MASQUERADE
-    remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j MARK --set-mark "$BYPASS_FWMARK"
-    remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j MARK --set-mark 0
+    remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_ROUTES_IPSET" dst -j MARK --set-mark "$BYPASS_FWMARK"
+    remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_ROUTES_IPSET" dst -j MARK --set-mark 0
+    remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LEGACY_LOCAL_IPSET" dst -j MARK --set-mark "$BYPASS_FWMARK"
+    remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LEGACY_LOCAL_IPSET" dst -j MARK --set-mark 0
     remove_ip6_rule FORWARD -i "$HOTSPOT_IF" -j DROP
     remove_ip6_rule FORWARD -i "$HOTSPOT_IF" -j REJECT --reject-with icmp6-adm-prohibited
 
@@ -268,13 +285,17 @@ apply_policy() {
 cleanup_policy() {
     remove_rule nat POSTROUTING -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -j MASQUERADE
     remove_rule nat POSTROUTING -o "$VPN_IF" -j MASQUERADE
-    remove_rule nat POSTROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -o "$LAN_IF" -j MASQUERADE
+    remove_rule nat POSTROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_ROUTES_IPSET" dst -o "$LAN_IF" -j MASQUERADE
+    remove_rule nat POSTROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LEGACY_LOCAL_IPSET" dst -o "$LAN_IF" -j MASQUERADE
     remove_rule mangle OUTPUT -m set --match-set "$VPN_IPSET" dst -j MARK --set-mark "$FWMARK"
-    remove_rule mangle OUTPUT -m set --match-set "$GITHUB_IPSET" dst -j MARK --set-mark "$FWMARK"
+    remove_rule mangle OUTPUT -m set --match-set "$VPN_ROUTES_IPSET" dst -j MARK --set-mark "$FWMARK"
+    remove_rule mangle OUTPUT -m set --match-set "$LEGACY_GITHUB_IPSET" dst -j MARK --set-mark "$FWMARK"
     remove_rule mangle OUTPUT -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200
     remove_rule mangle POSTROUTING -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
-    remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j MARK --set-mark "$BYPASS_FWMARK"
-    remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j MARK --set-mark 0
+    remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_ROUTES_IPSET" dst -j MARK --set-mark "$BYPASS_FWMARK"
+    remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_ROUTES_IPSET" dst -j MARK --set-mark 0
+    remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LEGACY_LOCAL_IPSET" dst -j MARK --set-mark "$BYPASS_FWMARK"
+    remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LEGACY_LOCAL_IPSET" dst -j MARK --set-mark 0
     remove_rule mangle FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200
     remove_rule mangle FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
     remove_rule filter FORWARD -i "$HOTSPOT_IF" -o "$VPN_IF" -s "$HOTSPOT_SUBNET" -j ACCEPT
