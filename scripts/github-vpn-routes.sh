@@ -71,7 +71,7 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-ipset create "$GITHUB_IPSET" hash:net family inet 2>/dev/null || true
+ipset create "$GITHUB_IPSET" hash:net family inet maxelem 131072 2>/dev/null || true
 if [ "$GITHUB_IPSET" != "github_vpn_routes" ] && ipset list github_vpn_routes >/dev/null 2>&1; then
     ipset flush github_vpn_routes 2>/dev/null || true
     ipset destroy github_vpn_routes 2>/dev/null || true
@@ -86,13 +86,8 @@ fi
 # If ipset is currently empty, quickly load pre-seeded local ranges first
 if [ "$existing_count" -eq 0 ] && [ -n "$PRESEEDED_RANGES" ] && [ -s "$PRESEEDED_RANGES" ]; then
     log "Loading pre-seeded GitHub IPv4 ranges from $PRESEEDED_RANGES..."
-    preseed_added=0
-    while IFS= read -r cidr; do
-        [ -n "$cidr" ] || continue
-        ipset add "$GITHUB_IPSET" "$cidr" -exist
-        preseed_added=$((preseed_added + 1))
-    done < "$PRESEEDED_RANGES"
-    existing_count="$preseed_added"
+    sed -e "s|^|add $GITHUB_IPSET |" -e 's|$| -exist|' "$PRESEEDED_RANGES" | ipset restore
+    existing_count="$(wc -l < "$PRESEEDED_RANGES" | tr -d ' ')" 
     log "Loaded $existing_count pre-seeded GitHub IPv4 ranges into '$GITHUB_IPSET'."
 fi
 
@@ -134,7 +129,7 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as meta_file:
     meta = json.load(meta_file)
 
-keys = ("hooks", "web", "api", "git", "packages")
+keys = ("hooks", "web", "api", "git", "packages", "actions")
 ranges = set()
 for key in keys:
     for value in meta.get(key, []):
@@ -159,12 +154,8 @@ fi
 
 ipset flush "$GITHUB_IPSET"
 
-added_count=0
-while IFS= read -r cidr; do
-    [ -n "$cidr" ] || continue
-    ipset add "$GITHUB_IPSET" "$cidr" -exist
-    added_count=$((added_count + 1))
-done < "$tmp_ranges"
+sed -e "s|^|add $GITHUB_IPSET |" -e 's|$| -exist|' "$tmp_ranges" | ipset restore
+added_count="$(wc -l < "$tmp_ranges" | tr -d ' ')" 
 
 log "Loaded $added_count GitHub IPv4 ranges into ipset '$GITHUB_IPSET'."
 
