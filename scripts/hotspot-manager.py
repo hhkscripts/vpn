@@ -562,29 +562,31 @@ def wait_for_interface(interface: str, timeout: int = 60) -> bool:
     return False
 
 
-def restart_vpn() -> bool:
-    target = get_configured_backend()
-    if target == "awg0":
-        log("Restarting AmneziaWG (awg0)...")
-        run_args(["sudo", "systemctl", "restart", "awg-quick@awg0"], timeout=30)
-        if wait_for_interface("awg0", timeout=10):
-            log("AmneziaWG connected", "SUCCESS")
-            policy_ok = apply_vpn_policy("awg0")
-            refresh_github_routes()
-            return policy_ok
-        log("AmneziaWG restart failed", "ERROR")
-        return False
-    elif target == "wg0":
-        log("Restarting WireGuard (wg0)...")
-        run_args(["sudo", "systemctl", "restart", "wg-quick@wg0"], timeout=30)
-        if wait_for_interface("wg0", timeout=10):
-            log("WireGuard connected", "SUCCESS")
-            policy_ok = apply_vpn_policy("wg0")
-            refresh_github_routes()
-            return policy_ok
-        log("WireGuard restart failed", "ERROR")
-        return False
+def restart_amneziawg() -> bool:
+    log("Restarting AmneziaWG (awg0)...")
+    run_args(["sudo", "systemctl", "restart", "awg-quick@awg0"], timeout=30)
+    if wait_for_interface("awg0", timeout=10):
+        log("AmneziaWG connected", "SUCCESS")
+        policy_ok = apply_vpn_policy("awg0")
+        refresh_github_routes()
+        return policy_ok
+    log("AmneziaWG restart failed", "ERROR")
+    return False
 
+
+def restart_wireguard() -> bool:
+    log("Restarting WireGuard (wg0)...")
+    run_args(["sudo", "systemctl", "restart", "wg-quick@wg0"], timeout=30)
+    if wait_for_interface("wg0", timeout=10):
+        log("WireGuard connected", "SUCCESS")
+        policy_ok = apply_vpn_policy("wg0")
+        refresh_github_routes()
+        return policy_ok
+    log("WireGuard restart failed", "ERROR")
+    return False
+
+
+def restart_openvpn() -> bool:
     if check_vpn():
         log("Restarting OpenVPN connection...")
     else:
@@ -615,6 +617,40 @@ def restart_vpn() -> bool:
 
     log(f"VPN activation failed: {last_error}", "ERROR")
     return False
+
+
+def restart_vpn() -> bool:
+    target = get_configured_backend()
+    if target == "awg0":
+        return restart_amneziawg()
+    elif target == "wg0":
+        return restart_wireguard()
+    elif target == "tun0":
+        return restart_openvpn()
+
+    # In "auto" mode: preserve and restart the currently active backend
+    active_if, _ = get_active_vpn_interface()
+    if active_if == "awg0":
+        return restart_amneziawg()
+    elif active_if == "wg0":
+        return restart_wireguard()
+    elif active_if == "tun0" and check_vpn():
+        return restart_openvpn()
+
+    # If no VPN interface is currently up, activate in auto-priority order:
+    awg_conf = get_host_path("/etc/amnezia/amneziawg/awg0.conf")
+    if os.path.exists(awg_conf):
+        log("Auto mode: detecting configured AmneziaWG backend (awg0)...")
+        if restart_amneziawg():
+            return True
+
+    wg_conf = get_host_path("/etc/wireguard/wg0.conf")
+    if os.path.exists(wg_conf):
+        log("Auto mode: detecting configured WireGuard backend (wg0)...")
+        if restart_wireguard():
+            return True
+
+    return restart_openvpn()
 
 
 def refresh_github_routes() -> None:

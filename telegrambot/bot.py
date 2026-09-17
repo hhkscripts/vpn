@@ -180,7 +180,12 @@ def make_status_keyboard(status_text: str) -> InlineKeyboardMarkup:
         callback_data="menu_ipv6",
         icon_custom_emoji_id=EMOJI_TOOLS,
     )
-    adguard_running = "adguard: Running" in status_text or "adguard      Running" in status_text
+    adguard_running = (
+        "<code>adguard</code>: Running" in status_text
+        or "adguard: Running" in status_text
+        or "adguard      Running" in status_text
+        or get_current_adguard_state()
+    )
     adguard_btn = InlineKeyboardButton(
         f"🛡 AdGuard: {'ON' if adguard_running else 'OFF'}",
         callback_data="menu_adguard",
@@ -238,8 +243,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     reply_markup = make_status_keyboard(status_text)
 
     if update.message is not None:
-        if context.user_data is not None and not context.user_data.get("keyboard_set"):
-            context.user_data["keyboard_set"] = True
+        if context.user_data is not None and not context.user_data.get("keyboard_v2_adguard"):
+            context.user_data["keyboard_v2_adguard"] = True
             await update.message.reply_text(
                 "GoodWifi Hotspot Manager", reply_markup=MAIN_KEYBOARD
             )
