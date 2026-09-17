@@ -101,6 +101,7 @@ EMOJI_CROSS = CUSTOM_EMOJIS["cross"]
 EMOJI_PING = CUSTOM_EMOJIS["ping"]
 GOODWIFI_CONF = "/etc/goodwifi/goodwifi.conf"
 
+
 def get_host_path(path: str) -> str:
     if not os.path.exists(path) and os.path.exists(f"/host{path}"):
         return f"/host{path}"
@@ -137,7 +138,14 @@ def load_goodwifi_conf() -> None:
                     elif k == "TELEGRAM_CONTAINER" and v:
                         CONFIG["telegram_container"] = v
                     elif k == "ADGUARD_ENABLED" and v:
-                        CONFIG["adguard_enabled"] = v.lower() not in ["false", "0", "off", "no", "disable", "disabled"]
+                        CONFIG["adguard_enabled"] = v.lower() not in [
+                            "false",
+                            "0",
+                            "off",
+                            "no",
+                            "disable",
+                            "disabled",
+                        ]
         except Exception:
             pass
 
@@ -664,8 +672,6 @@ def refresh_github_routes() -> None:
         log(f"GitHub route refresh failed{detail}", "WARN")
 
 
-
-
 def get_adguard_enabled() -> bool:
     conf_path = get_host_path(GOODWIFI_CONF)
     if os.path.exists(conf_path):
@@ -796,6 +802,7 @@ def set_adguard_state(enable: bool) -> bool:
         else:
             log("AdGuard Home disabled, but fallback DNS check failed.", "WARN")
         return True
+
 
 def set_ipv6_mode(mode: str) -> bool:
     mode = mode.lower()

@@ -170,12 +170,8 @@ class AdGuardStateTests(unittest.TestCase):
             patch.object(
                 hotspot_manager, "configure_dnsmasq_fallback", return_value=True
             ) as dnsm,
-            patch.object(
-                hotspot_manager, "run_args", return_value=(True, "", "")
-            ),
-            patch.object(
-                hotspot_manager, "check_docker_container", return_value=True
-            ),
+            patch.object(hotspot_manager, "run_args", return_value=(True, "", "")),
+            patch.object(hotspot_manager, "check_docker_container", return_value=True),
             patch.object(hotspot_manager, "log"),
         ):
             self.assertTrue(hotspot_manager.set_adguard_state(True))
