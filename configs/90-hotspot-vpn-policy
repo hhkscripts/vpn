@@ -1,27 +1,30 @@
 #!/bin/sh
 # Keep Pi host traffic on eth0 while routing hotspot clients through the VPN.
 
-HOTSPOT_SUBNET="10.42.0.0/24"
-LAN_IF="eth0"
-LAN_GW_OVERRIDE="${LAN_GW:-}"
-TABLE_ID="100"
-RULE_PRIORITY="1000"
-HOST_RULE_PRIORITY="999"
-BYPASS_RULE_PRIORITY="998"
-MANAGEMENT_RULE_PRIORITY="997"
-FWMARK="100"
-BYPASS_FWMARK="101"
-VPN_IPSET="vpn_domains"
-GITHUB_IPSET="github_vpn_routes"
-LOCAL_BYPASS_IPSET="local_bypass_domains"
-IPTABLES_CHAIN="GOODWIFI_FORWARD"
-IP6TABLES_CHAIN="GOODWIFI6_FORWARD"
-MANAGEMENT_SUBNETS="${MANAGEMENT_SUBNETS:-10.8.0.0/24 192.168.100.0/24 192.168.1.0/24}"
-
 # Load optional config override if present
 # shellcheck source=/dev/null
 [ -f /etc/goodwifi/goodwifi.conf ] && . /etc/goodwifi/goodwifi.conf
 VPN_BACKEND="${VPN_BACKEND:-auto}"
+
+HOTSPOT_IF="${HOTSPOT_IF:-wlan0}"
+HOTSPOT_SUBNET="${HOTSPOT_SUBNET:-10.42.0.0/24}"
+HOTSPOT_IP="${HOTSPOT_IP:-10.42.0.1}"
+LAN_IF="${LAN_IF:-eth0}"
+LAN_GW_OVERRIDE="${LAN_GW:-}"
+TABLE_ID="${TABLE_ID:-100}"
+RULE_PRIORITY="${RULE_PRIORITY:-1000}"
+HOST_RULE_PRIORITY="${HOST_RULE_PRIORITY:-999}"
+BYPASS_RULE_PRIORITY="${BYPASS_RULE_PRIORITY:-998}"
+MANAGEMENT_RULE_PRIORITY="${MANAGEMENT_RULE_PRIORITY:-997}"
+FWMARK="${FWMARK:-100}"
+BYPASS_FWMARK="${BYPASS_FWMARK:-101}"
+VPN_IPSET="${VPN_IPSET:-vpn_domains}"
+GITHUB_IPSET="${GITHUB_IPSET:-github_vpn_routes}"
+LOCAL_BYPASS_IPSET="${LOCAL_BYPASS_IPSET:-local_bypass_domains}"
+IPTABLES_CHAIN="${IPTABLES_CHAIN:-GOODWIFI_FORWARD}"
+IP6TABLES_CHAIN="${IP6TABLES_CHAIN:-GOODWIFI6_FORWARD}"
+MANAGEMENT_SUBNETS="${MANAGEMENT_SUBNETS:-10.8.0.0/24 192.168.100.0/24 192.168.1.0/24}"
+IPV6_LEAK_PROTECTION="${IPV6_LEAK_PROTECTION:-drop}"
 
 # Determine VPN_IF dynamically or from argument
 if [ -n "$1" ] && [ "$1" != "apply" ] && [ "$1" != "cleanup" ] && [ "$1" != "up" ] && [ "$1" != "down" ] && [ "$1" != "vpn-up" ] && [ "$1" != "vpn-down" ] && [ "$1" != "connectivity-change" ]; then
@@ -151,26 +154,26 @@ apply_policy() {
     ipset create "$GITHUB_IPSET" hash:net family inet 2>/dev/null || true
     ipset create "$LOCAL_BYPASS_IPSET" hash:ip 2>/dev/null || true
     ensure_filter_chain "$IPTABLES_CHAIN"
-    ensure_ip6_filter_chain "$IP6TABLES_CHAIN"
 
     remove_rule mangle OUTPUT -m set --match-set "$VPN_IPSET" dst -j MARK --set-mark "$FWMARK"
     remove_rule mangle OUTPUT -m set --match-set "$GITHUB_IPSET" dst -j MARK --set-mark "$FWMARK"
     remove_rule mangle OUTPUT -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200
     remove_rule mangle POSTROUTING -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
     remove_rule nat POSTROUTING -o "$VPN_IF" -j MASQUERADE
-    remove_rule filter FORWARD -i wlan0 -o "$VPN_IF" -s "$HOTSPOT_SUBNET" -j ACCEPT
-    remove_rule filter FORWARD -i "$VPN_IF" -o wlan0 -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
-    remove_rule filter FORWARD -i wlan0 -o "$LAN_IF" -j ACCEPT
-    remove_rule filter FORWARD -i "$LAN_IF" -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+    remove_rule filter FORWARD -i "$HOTSPOT_IF" -o "$VPN_IF" -s "$HOTSPOT_SUBNET" -j ACCEPT
+    remove_rule filter FORWARD -i "$VPN_IF" -o "$HOTSPOT_IF" -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
+    remove_rule filter FORWARD -i "$HOTSPOT_IF" -o "$LAN_IF" -j ACCEPT
+    remove_rule filter FORWARD -i "$LAN_IF" -o "$HOTSPOT_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT
     for subnet in $MANAGEMENT_SUBNETS; do
-        remove_rule filter FORWARD -i wlan0 -o "$LAN_IF" -s "$HOTSPOT_SUBNET" -d "$subnet" -j ACCEPT
-        remove_rule filter FORWARD -i "$LAN_IF" -o wlan0 -d "$HOTSPOT_SUBNET" -s "$subnet" -m state --state RELATED,ESTABLISHED -j ACCEPT
+        remove_rule filter FORWARD -i "$HOTSPOT_IF" -o "$LAN_IF" -s "$HOTSPOT_SUBNET" -d "$subnet" -j ACCEPT
+        remove_rule filter FORWARD -i "$LAN_IF" -o "$HOTSPOT_IF" -d "$HOTSPOT_SUBNET" -s "$subnet" -m state --state RELATED,ESTABLISHED -j ACCEPT
         remove_rule nat POSTROUTING -s "$HOTSPOT_SUBNET" -d "$subnet" -o "$LAN_IF" -j MASQUERADE
     done
     remove_rule nat POSTROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -o "$LAN_IF" -j MASQUERADE
     remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j MARK --set-mark "$BYPASS_FWMARK"
     remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j MARK --set-mark 0
-    remove_ip6_rule FORWARD -i wlan0 -j DROP
+    remove_ip6_rule FORWARD -i "$HOTSPOT_IF" -j DROP
+    remove_ip6_rule FORWARD -i "$HOTSPOT_IF" -j REJECT --reject-with icmp6-adm-prohibited
 
     ip route del default dev "$VPN_IF" table main metric 100 2>/dev/null || \
         ip route del default dev "$VPN_IF" table main 2>/dev/null || true
@@ -178,7 +181,7 @@ apply_policy() {
         ip route add default via "$LAN_GW" dev "$LAN_IF" metric 100 2>/dev/null || \
             ip route replace default via "$LAN_GW" dev "$LAN_IF" metric 100 2>/dev/null || true
     fi
-    ip route replace "$HOTSPOT_SUBNET" dev wlan0 table "$TABLE_ID" 2>/dev/null || true
+    ip route replace "$HOTSPOT_SUBNET" dev "$HOTSPOT_IF" table "$TABLE_ID" 2>/dev/null || true
     ip route replace default dev "$VPN_IF" table "$TABLE_ID" 2>/dev/null || true
 
     ip rule del from "$HOTSPOT_SUBNET" table "$TABLE_ID" priority "$RULE_PRIORITY" 2>/dev/null || true
@@ -218,43 +221,52 @@ apply_policy() {
         iptables -t mangle -A OUTPUT -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200
     iptables -t mangle -C POSTROUTING -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || \
         iptables -t mangle -A POSTROUTING -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
-    iptables -A "$IPTABLES_CHAIN" -i wlan0 -o "$LAN_IF" -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j ACCEPT
-    iptables -A "$IPTABLES_CHAIN" -i "$LAN_IF" -o wlan0 -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
+    iptables -A "$IPTABLES_CHAIN" -i "$HOTSPOT_IF" -o "$LAN_IF" -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j ACCEPT
+    iptables -A "$IPTABLES_CHAIN" -i "$LAN_IF" -o "$HOTSPOT_IF" -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
     for subnet in $MANAGEMENT_SUBNETS; do
         case "$subnet" in
             10.8.0.0/24)
                 ;;
             *)
-                iptables -A "$IPTABLES_CHAIN" -i wlan0 -o "$LAN_IF" -s "$HOTSPOT_SUBNET" -d "$subnet" -j ACCEPT
-                iptables -A "$IPTABLES_CHAIN" -i "$LAN_IF" -o wlan0 -d "$HOTSPOT_SUBNET" -s "$subnet" -m state --state RELATED,ESTABLISHED -j ACCEPT
+                iptables -A "$IPTABLES_CHAIN" -i "$HOTSPOT_IF" -o "$LAN_IF" -s "$HOTSPOT_SUBNET" -d "$subnet" -j ACCEPT
+                iptables -A "$IPTABLES_CHAIN" -i "$LAN_IF" -o "$HOTSPOT_IF" -d "$HOTSPOT_SUBNET" -s "$subnet" -m state --state RELATED,ESTABLISHED -j ACCEPT
                 ;;
         esac
     done
-    iptables -A "$IPTABLES_CHAIN" -i wlan0 -o "$VPN_IF" -s "$HOTSPOT_SUBNET" -j ACCEPT
-    iptables -A "$IPTABLES_CHAIN" -i "$VPN_IF" -o wlan0 -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
+    iptables -A "$IPTABLES_CHAIN" -i "$HOTSPOT_IF" -o "$VPN_IF" -s "$HOTSPOT_SUBNET" -j ACCEPT
+    iptables -A "$IPTABLES_CHAIN" -i "$VPN_IF" -o "$HOTSPOT_IF" -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
     remove_rule mangle FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200
     remove_rule mangle FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
-    iptables -t mangle -C FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || \
-        iptables -t mangle -A FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+    iptables -t mangle -C FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null ||         iptables -t mangle -A FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
-    iptables -C INPUT -i wlan0 -p udp --dport 67:68 -j ACCEPT 2>/dev/null || \
-        iptables -A INPUT -i wlan0 -p udp --dport 67:68 -j ACCEPT
-    iptables -C INPUT -i wlan0 -p tcp --dport 53 -j ACCEPT 2>/dev/null || \
-        iptables -A INPUT -i wlan0 -p tcp --dport 53 -j ACCEPT
-    iptables -C INPUT -i wlan0 -p udp --dport 53 -j ACCEPT 2>/dev/null || \
-        iptables -A INPUT -i wlan0 -p udp --dport 53 -j ACCEPT
+    iptables -C INPUT -i "$HOTSPOT_IF" -p udp --dport 67:68 -j ACCEPT 2>/dev/null ||         iptables -A INPUT -i "$HOTSPOT_IF" -p udp --dport 67:68 -j ACCEPT
+    iptables -C INPUT -i "$HOTSPOT_IF" -p tcp --dport 53 -j ACCEPT 2>/dev/null ||         iptables -A INPUT -i "$HOTSPOT_IF" -p tcp --dport 53 -j ACCEPT
+    iptables -C INPUT -i "$HOTSPOT_IF" -p udp --dport 53 -j ACCEPT 2>/dev/null ||         iptables -A INPUT -i "$HOTSPOT_IF" -p udp --dport 53 -j ACCEPT
 
-    # Force all client DNS (port 53) to AdGuard Home (10.42.0.1:53)
-    iptables -t nat -C PREROUTING -i wlan0 -p udp --dport 53 ! -d 10.42.0.1 -j DNAT --to-destination 10.42.0.1:53 2>/dev/null || \
-        iptables -t nat -A PREROUTING -i wlan0 -p udp --dport 53 ! -d 10.42.0.1 -j DNAT --to-destination 10.42.0.1:53
-    iptables -t nat -C PREROUTING -i wlan0 -p tcp --dport 53 ! -d 10.42.0.1 -j DNAT --to-destination 10.42.0.1:53 2>/dev/null || \
-        iptables -t nat -A PREROUTING -i wlan0 -p tcp --dport 53 ! -d 10.42.0.1 -j DNAT --to-destination 10.42.0.1:53
+    # Force all client DNS (port 53) to AdGuard Home ($HOTSPOT_IP:53)
+    iptables -t nat -C PREROUTING -i "$HOTSPOT_IF" -p udp --dport 53 ! -d "$HOTSPOT_IP" -j DNAT --to-destination "$HOTSPOT_IP:53" 2>/dev/null ||         iptables -t nat -A PREROUTING -i "$HOTSPOT_IF" -p udp --dport 53 ! -d "$HOTSPOT_IP" -j DNAT --to-destination "$HOTSPOT_IP:53"
+    iptables -t nat -C PREROUTING -i "$HOTSPOT_IF" -p tcp --dport 53 ! -d "$HOTSPOT_IP" -j DNAT --to-destination "$HOTSPOT_IP:53" 2>/dev/null ||         iptables -t nat -A PREROUTING -i "$HOTSPOT_IF" -p tcp --dport 53 ! -d "$HOTSPOT_IP" -j DNAT --to-destination "$HOTSPOT_IP:53"
 
     # Reject DNS-over-TLS (port 853) so client devices fall back to standard DNS (AdGuard Home)
-    iptables -C "$IPTABLES_CHAIN" -i wlan0 -p tcp --dport 853 -j REJECT 2>/dev/null || \
-        iptables -A "$IPTABLES_CHAIN" -i wlan0 -p tcp --dport 853 -j REJECT
+    iptables -C "$IPTABLES_CHAIN" -i "$HOTSPOT_IF" -p tcp --dport 853 -j REJECT 2>/dev/null ||         iptables -A "$IPTABLES_CHAIN" -i "$HOTSPOT_IF" -p tcp --dport 853 -j REJECT
 
-    ip6tables -A "$IP6TABLES_CHAIN" -i wlan0 -j DROP
+    case "$IPV6_LEAK_PROTECTION" in
+        drop|1|true|yes)
+            ensure_ip6_filter_chain "$IP6TABLES_CHAIN"
+            ip6tables -A "$IP6TABLES_CHAIN" -i "$HOTSPOT_IF" -j DROP
+            ;;
+        reject)
+            ensure_ip6_filter_chain "$IP6TABLES_CHAIN"
+            ip6tables -A "$IP6TABLES_CHAIN" -i "$HOTSPOT_IF" -j REJECT --reject-with icmp6-adm-prohibited
+            ;;
+        off|0|false|no)
+            remove_ip6_filter_chain "$IP6TABLES_CHAIN"
+            ;;
+        *)
+            ensure_ip6_filter_chain "$IP6TABLES_CHAIN"
+            ip6tables -A "$IP6TABLES_CHAIN" -i "$HOTSPOT_IF" -j DROP
+            ;;
+    esac
 }
 
 cleanup_policy() {
@@ -269,21 +281,22 @@ cleanup_policy() {
     remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j MARK --set-mark 0
     remove_rule mangle FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200
     remove_rule mangle FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
-    remove_rule filter FORWARD -i wlan0 -o "$VPN_IF" -s "$HOTSPOT_SUBNET" -j ACCEPT
-    remove_rule filter FORWARD -i "$VPN_IF" -o wlan0 -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
-    remove_rule filter FORWARD -i wlan0 -o "$LAN_IF" -j ACCEPT
-    remove_rule filter FORWARD -i "$LAN_IF" -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+    remove_rule filter FORWARD -i "$HOTSPOT_IF" -o "$VPN_IF" -s "$HOTSPOT_SUBNET" -j ACCEPT
+    remove_rule filter FORWARD -i "$VPN_IF" -o "$HOTSPOT_IF" -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
+    remove_rule filter FORWARD -i "$HOTSPOT_IF" -o "$LAN_IF" -j ACCEPT
+    remove_rule filter FORWARD -i "$LAN_IF" -o "$HOTSPOT_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT
     for subnet in $MANAGEMENT_SUBNETS; do
-        remove_rule filter FORWARD -i wlan0 -o "$LAN_IF" -s "$HOTSPOT_SUBNET" -d "$subnet" -j ACCEPT
-        remove_rule filter FORWARD -i "$LAN_IF" -o wlan0 -d "$HOTSPOT_SUBNET" -s "$subnet" -m state --state RELATED,ESTABLISHED -j ACCEPT
+        remove_rule filter FORWARD -i "$HOTSPOT_IF" -o "$LAN_IF" -s "$HOTSPOT_SUBNET" -d "$subnet" -j ACCEPT
+        remove_rule filter FORWARD -i "$LAN_IF" -o "$HOTSPOT_IF" -d "$HOTSPOT_SUBNET" -s "$subnet" -m state --state RELATED,ESTABLISHED -j ACCEPT
         remove_rule nat POSTROUTING -s "$HOTSPOT_SUBNET" -d "$subnet" -o "$LAN_IF" -j MASQUERADE
     done
-    remove_ip6_rule FORWARD -i wlan0 -j DROP
+    remove_ip6_rule FORWARD -i "$HOTSPOT_IF" -j DROP
+    remove_ip6_rule FORWARD -i "$HOTSPOT_IF" -j REJECT --reject-with icmp6-adm-prohibited
     remove_filter_chain "$IPTABLES_CHAIN"
     remove_ip6_filter_chain "$IP6TABLES_CHAIN"
-    remove_rule filter INPUT -i wlan0 -p udp --dport 67:68 -j ACCEPT
-    remove_rule filter INPUT -i wlan0 -p tcp --dport 53 -j ACCEPT
-    remove_rule filter INPUT -i wlan0 -p udp --dport 53 -j ACCEPT
+    remove_rule filter INPUT -i "$HOTSPOT_IF" -p udp --dport 67:68 -j ACCEPT
+    remove_rule filter INPUT -i "$HOTSPOT_IF" -p tcp --dport 53 -j ACCEPT
+    remove_rule filter INPUT -i "$HOTSPOT_IF" -p udp --dport 53 -j ACCEPT
     ip rule del from "$HOTSPOT_SUBNET" table "$TABLE_ID" priority "$RULE_PRIORITY" 2>/dev/null || true
     ip rule del fwmark "$FWMARK" table "$TABLE_ID" priority "$HOST_RULE_PRIORITY" 2>/dev/null || true
     ip rule del fwmark "$BYPASS_FWMARK" table main priority "$BYPASS_RULE_PRIORITY" 2>/dev/null || true
