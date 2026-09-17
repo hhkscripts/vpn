@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Optional, Sequence, TypedDict
 
 
-class Config(TypedDict):
+class Config(TypedDict, total=False):
     services: list[str]
     vpn_name: str
     default_hotspot_ssid: str
@@ -24,6 +24,8 @@ class Config(TypedDict):
     log_file: str
     ping_target: str
     hotspot_subnet: str
+    adguard_container: str
+    telegram_container: str
 
 
 class PingStatus(TypedDict):
@@ -69,6 +71,8 @@ CONFIG: Config = {
     "log_file": "/var/log/hotspot-manager.log",
     "ping_target": "8.8.8.8",
     "hotspot_subnet": "10.42.0.0/24",
+    "adguard_container": "adguardhome",
+    "telegram_container": "mpxraspberrypibot",
 }
 
 GITHUB_ROUTE_SCRIPT = "/usr/local/bin/github-vpn-routes.sh"
@@ -121,6 +125,10 @@ def load_goodwifi_conf() -> None:
                         CONFIG["ping_target"] = v
                     elif k == "VPN_UUID" and v:
                         CONFIG["vpn_name"] = v
+                    elif k == "ADGUARD_CONTAINER" and v:
+                        CONFIG["adguard_container"] = v
+                    elif k == "TELEGRAM_CONTAINER" and v:
+                        CONFIG["telegram_container"] = v
         except Exception:
             pass
 
@@ -266,6 +274,40 @@ def run_args(cmd: Sequence[str], timeout: int = 30) -> tuple[bool, str, str]:
 def check_service(service: str) -> bool:
     ok, out, _ = run_args(["systemctl", "is-active", service])
     return ok and out == "active"
+
+
+def check_docker_container(container: str) -> Optional[bool]:
+    """Check whether a Docker container is running.
+    Returns True if running, False if stopped, or None if Docker/container
+    is not available.
+    """
+    ok, out, _ = run_args(
+        ["docker", "inspect", "-f", "{{.State.Running}}", container], timeout=5
+    )
+    if ok and out.lower() in ["true", "false"]:
+        return out.lower() == "true"
+
+    if (
+        os.path.exists("/host/bin/docker")
+        or os.path.exists("/host/usr/bin/docker")
+        or os.path.exists("/host/var/run/docker.sock")
+    ):
+        ok, out, _ = run_args(
+            [
+                "chroot",
+                "/host",
+                "docker",
+                "inspect",
+                "-f",
+                "{{.State.Running}}",
+                container,
+            ],
+            timeout=5,
+        )
+        if ok and out.lower() in ["true", "false"]:
+            return out.lower() == "true"
+
+    return None
 
 
 def check_vpn() -> bool:
@@ -573,8 +615,32 @@ def get_status() -> HotspotStatus:
         check_vpn_external_ip() if vpn_connected else (False, None)
     )
 
+    services_status = {s: check_service(s) for s in CONFIG["services"]}
+
+    adguard_candidates = [
+        CONFIG.get("adguard_container", "adguardhome"),
+        "adguardhome",
+        "adguard",
+    ]
+    for name in dict.fromkeys(adguard_candidates):
+        st = check_docker_container(name)
+        if st is not None:
+            services_status["adguard"] = st
+            break
+
+    bot_candidates = [
+        CONFIG.get("telegram_container", "mpxraspberrypibot"),
+        "mpxraspberrypibot",
+        "telegrambot",
+    ]
+    for name in dict.fromkeys(bot_candidates):
+        st = check_docker_container(name)
+        if st is not None:
+            services_status["telegrambot"] = st
+            break
+
     return {
-        "services": {s: check_service(s) for s in CONFIG["services"]},
+        "services": services_status,
         "vpn": {
             "connected": vpn_connected,
             "interface": active_if,
