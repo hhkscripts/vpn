@@ -33,13 +33,15 @@ GITHUB_IPSET="${GITHUB_IPSET:-github_vpn_routes}"
 META_URL="${GITHUB_META_URL:-https://api.github.com/meta}"
 FORCE_REFRESH="${GITHUB_ROUTES_FORCE_REFRESH:-0}"
 
+REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+
 if [ -z "${GITHUB_PRESEEDED_RANGES:-}" ]; then
     if [ -f "$PROJECT_DIR/configs/github-ipv4-ranges.txt" ]; then
         PRESEEDED_RANGES="$PROJECT_DIR/configs/github-ipv4-ranges.txt"
+    elif [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/configs/github-ipv4-ranges.txt" ]; then
+        PRESEEDED_RANGES="$REPO_ROOT/configs/github-ipv4-ranges.txt"
     elif [ -f "/etc/goodwifi/github-ipv4-ranges.txt" ]; then
         PRESEEDED_RANGES="/etc/goodwifi/github-ipv4-ranges.txt"
-    elif [ -f "/home/hhk/Projects/vpn/configs/github-ipv4-ranges.txt" ]; then
-        PRESEEDED_RANGES="/home/hhk/Projects/vpn/configs/github-ipv4-ranges.txt"
     else
         PRESEEDED_RANGES=""
     fi
@@ -167,8 +169,8 @@ if [ -n "$PRESEEDED_RANGES" ] && [ -w "$PRESEEDED_RANGES" ]; then
 fi
 if [ -f "$PROJECT_DIR/configs/github-ipv4-ranges.txt" ] && [ -w "$PROJECT_DIR/configs/github-ipv4-ranges.txt" ] && [ "$PRESEEDED_RANGES" != "$PROJECT_DIR/configs/github-ipv4-ranges.txt" ]; then
     cp "$tmp_ranges" "$PROJECT_DIR/configs/github-ipv4-ranges.txt" 2>/dev/null || true
-elif [ -f "/home/hhk/Projects/vpn/configs/github-ipv4-ranges.txt" ] && [ -w "/home/hhk/Projects/vpn/configs/github-ipv4-ranges.txt" ] && [ "$PRESEEDED_RANGES" != "/home/hhk/Projects/vpn/configs/github-ipv4-ranges.txt" ]; then
-    cp "$tmp_ranges" "/home/hhk/Projects/vpn/configs/github-ipv4-ranges.txt" 2>/dev/null || true
+elif [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/configs/github-ipv4-ranges.txt" ] && [ -w "$REPO_ROOT/configs/github-ipv4-ranges.txt" ] && [ "$PRESEEDED_RANGES" != "$REPO_ROOT/configs/github-ipv4-ranges.txt" ]; then
+    cp "$tmp_ranges" "$REPO_ROOT/configs/github-ipv4-ranges.txt" 2>/dev/null || true
 fi
 
 if command -v netfilter-persistent >/dev/null 2>&1; then

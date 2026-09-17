@@ -8,13 +8,30 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import List
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+)
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 # Configuration
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USERS = os.getenv("TELEGRAM_ALLOWED_USERS", "")
-ALLOWED_USER_IDS = [int(uid.strip()) for uid in ALLOWED_USERS.split(",") if uid.strip().isdigit()] if ALLOWED_USERS else []
+ALLOWED_USER_IDS = (
+    [int(uid.strip()) for uid in ALLOWED_USERS.split(",") if uid.strip().isdigit()]
+    if ALLOWED_USERS
+    else []
+)
 BOT_HEALTH_HOST = os.getenv("BOT_HEALTH_HOST", "0.0.0.0")
 BOT_HEALTH_PORT = int(os.getenv("BOT_HEALTH_PORT", "8081"))
 BOT_SERVICE_NAME = os.getenv("BOT_SERVICE_NAME", "mpxraspberrypibot")
@@ -24,12 +41,12 @@ SCRIPT_PATH = os.path.join(SCRIPT_DIR, "hotspot-manager.py")
 
 
 # Premium Custom Emoji IDs
-EMOJI_STATS = "6143449494244563627"     # 📶 / 📊 Stats
-EMOJI_CLIENTS = "6127157759872868272"   # 📡 Signal / Clients
-EMOJI_REFRESH = "6057439501377085156"   # 🔄 Refresh / Restart
-EMOJI_LOCK = "6059947491695008618"      # 🔒 Lock / VPN
-EMOJI_TOOLS = "6141134446742478627"     # 🔧 Tools / Fix
-EMOJI_HELP = "6307322000033458270"      # 📔 Book / Help
+EMOJI_STATS = "6143449494244563627"  # 📶 / 📊 Stats
+EMOJI_CLIENTS = "6127157759872868272"  # 📡 Signal / Clients
+EMOJI_REFRESH = "6057439501377085156"  # 🔄 Refresh / Restart
+EMOJI_LOCK = "6059947491695008618"  # 🔒 Lock / VPN
+EMOJI_TOOLS = "6141134446742478627"  # 🔧 Tools / Fix
+EMOJI_HELP = "6307322000033458270"  # 📔 Book / Help
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [
@@ -55,7 +72,9 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
 )
 
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.WARNING)
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.WARNING
+)
 logger = logging.getLogger(__name__)
 for noisy_logger in ("httpx", "httpcore", "telegram", "telegram.ext"):
     logging.getLogger(noisy_logger).setLevel(logging.WARNING)
@@ -71,7 +90,9 @@ class BotHealthHandler(BaseHTTPRequestHandler):
             return
 
         if _bot_ready.is_set():
-            payload = json.dumps({"status": "ok", "service": BOT_SERVICE_NAME}).encode("utf-8")
+            payload = json.dumps({"status": "ok", "service": BOT_SERVICE_NAME}).encode(
+                "utf-8"
+            )
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
@@ -79,7 +100,9 @@ class BotHealthHandler(BaseHTTPRequestHandler):
             self.wfile.write(payload)
             return
 
-        payload = json.dumps({"status": "starting", "service": BOT_SERVICE_NAME}).encode("utf-8")
+        payload = json.dumps(
+            {"status": "starting", "service": BOT_SERVICE_NAME}
+        ).encode("utf-8")
         self.send_response(503)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
@@ -106,7 +129,9 @@ def check_authorization(user_id: int) -> bool:
 def run_hotspot_command(args: List[str]):
     """Run hotspot-manager.py in the host namespaces."""
     try:
-        script_path = "/home/hhk/Projects/vpn/telegrambot/hotspot-manager.py"
+        script_path = os.environ.get(
+            "HOTSPOT_MANAGER_HOST_PATH", "/usr/local/bin/hotspot-manager.py"
+        )
         cmd = [
             "nsenter",
             "--target",
@@ -161,7 +186,9 @@ def make_status_keyboard(status_text: str) -> InlineKeyboardMarkup:
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or not check_authorization(update.effective_user.id):
+    if update.effective_user is None or not check_authorization(
+        update.effective_user.id
+    ):
         return
 
     help_text = """<b>Available Commands:</b>
@@ -178,17 +205,23 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 <b>Usage:</b> Send command as plain text (no / needed)"""
 
     if update.message is not None:
-        await update.message.reply_text(help_text, reply_markup=MAIN_KEYBOARD, parse_mode='HTML')
+        await update.message.reply_text(
+            help_text, reply_markup=MAIN_KEYBOARD, parse_mode="HTML"
+        )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or not check_authorization(update.effective_user.id):
+    if update.effective_user is None or not check_authorization(
+        update.effective_user.id
+    ):
         return
     await help_command(update, context)
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or not check_authorization(update.effective_user.id):
+    if update.effective_user is None or not check_authorization(
+        update.effective_user.id
+    ):
         return
 
     status_text = await get_status_text()
@@ -197,15 +230,21 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if update.message is not None:
         if context.user_data is not None and not context.user_data.get("keyboard_set"):
             context.user_data["keyboard_set"] = True
-            await update.message.reply_text("GoodWifi Hotspot Manager", reply_markup=MAIN_KEYBOARD)
-        await update.message.reply_text(text=status_text, reply_markup=reply_markup, parse_mode='HTML')
+            await update.message.reply_text(
+                "GoodWifi Hotspot Manager", reply_markup=MAIN_KEYBOARD
+            )
+        await update.message.reply_text(
+            text=status_text, reply_markup=reply_markup, parse_mode="HTML"
+        )
 
 
 async def refresh_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if query is None:
         return
-    if update.effective_user is None or not check_authorization(update.effective_user.id):
+    if update.effective_user is None or not check_authorization(
+        update.effective_user.id
+    ):
         try:
             await query.answer("Unauthorized", show_alert=True)
         except Exception:
@@ -221,7 +260,9 @@ async def refresh_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     reply_markup = make_status_keyboard(status_text)
 
     try:
-        await query.edit_message_text(text=status_text, reply_markup=reply_markup, parse_mode='HTML')
+        await query.edit_message_text(
+            text=status_text, reply_markup=reply_markup, parse_mode="HTML"
+        )
     except Exception as e:
         if "not modified" not in str(e).lower():
             logger.warning(f"Could not edit message: {e}")
@@ -261,11 +302,7 @@ def get_current_ipv6_mode() -> str:
                     line = line.strip()
                     if line.startswith("IPV6_LEAK_PROTECTION="):
                         val = (
-                            line.split("=", 1)[1]
-                            .strip()
-                            .strip('"')
-                            .strip("'")
-                            .lower()
+                            line.split("=", 1)[1].strip().strip('"').strip("'").lower()
                         )
                         if val in ["drop", "reject", "off"]:
                             return val
@@ -275,7 +312,9 @@ def get_current_ipv6_mode() -> str:
 
 
 async def ipv6_menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or not check_authorization(update.effective_user.id):
+    if update.effective_user is None or not check_authorization(
+        update.effective_user.id
+    ):
         return
 
     current = get_current_ipv6_mode().upper()
@@ -302,14 +341,18 @@ async def ipv6_menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         f"Choose an option below to set:"
     )
     if update.message:
-        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='HTML')
+        await update.message.reply_text(
+            text, reply_markup=reply_markup, parse_mode="HTML"
+        )
 
 
 async def ipv6_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if query is None or query.data is None:
         return
-    if update.effective_user is None or not check_authorization(update.effective_user.id):
+    if update.effective_user is None or not check_authorization(
+        update.effective_user.id
+    ):
         try:
             await query.answer("Unauthorized", show_alert=True)
         except Exception:
@@ -327,7 +370,9 @@ async def ipv6_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 InlineKeyboardButton("⚪ Off (Allow IPv6)", callback_data="ipv6_off"),
             ],
             [
-                InlineKeyboardButton("🔄 Refresh Status", callback_data="refresh_status"),
+                InlineKeyboardButton(
+                    "🔄 Refresh Status", callback_data="refresh_status"
+                ),
             ],
         ]
         text = (
@@ -339,7 +384,9 @@ async def ipv6_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             f"Choose an option below to set:"
         )
         try:
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+            await query.edit_message_text(
+                text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML"
+            )
         except Exception:
             pass
         return
@@ -359,7 +406,7 @@ async def ipv6_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await query.edit_message_text(
             text=f"<b>IPv6 Protection updated to {mode.upper()}!</b>\n\n{status_text}",
             reply_markup=reply_markup,
-            parse_mode='HTML',
+            parse_mode="HTML",
         )
     except Exception as e:
         if "not modified" not in str(e).lower():
@@ -367,7 +414,9 @@ async def ipv6_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def ipv6_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or not check_authorization(update.effective_user.id):
+    if update.effective_user is None or not check_authorization(
+        update.effective_user.id
+    ):
         return
 
     target = context.args[0].lower() if context.args else None
@@ -383,36 +432,58 @@ async def ipv6_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text(
             f"<b>IPv6 Protection set to {target.upper()}!</b>\n\n{status_text}",
             reply_markup=reply_markup,
-            parse_mode='HTML',
+            parse_mode="HTML",
         )
 
 
-async def switch_menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or not check_authorization(update.effective_user.id):
+async def switch_menu_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    if update.effective_user is None or not check_authorization(
+        update.effective_user.id
+    ):
         return
 
     current = get_current_backend_name()
     keyboard = [
         [
-            InlineKeyboardButton("⚡ AmneziaWG (awg0)", callback_data="switch_awg0", icon_custom_emoji_id=EMOJI_LOCK),
-            InlineKeyboardButton("🛡 OpenVPN (tun0)", callback_data="switch_tun0", icon_custom_emoji_id=EMOJI_LOCK),
+            InlineKeyboardButton(
+                "⚡ AmneziaWG (awg0)",
+                callback_data="switch_awg0",
+                icon_custom_emoji_id=EMOJI_LOCK,
+            ),
+            InlineKeyboardButton(
+                "🛡 OpenVPN (tun0)",
+                callback_data="switch_tun0",
+                icon_custom_emoji_id=EMOJI_LOCK,
+            ),
         ],
         [
-            InlineKeyboardButton("🔄 Auto (Auto Select)", callback_data="switch_auto", icon_custom_emoji_id=EMOJI_REFRESH),
+            InlineKeyboardButton(
+                "🔄 Auto (Auto Select)",
+                callback_data="switch_auto",
+                icon_custom_emoji_id=EMOJI_REFRESH,
+            ),
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     text = f"<b>Select VPN Backend:</b>\n\nActive: <code>{current}</code>\n\nChoose an option below to switch:"
     if update.message:
-        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='HTML')
+        await update.message.reply_text(
+            text, reply_markup=reply_markup, parse_mode="HTML"
+        )
 
 
-async def switch_vpn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def switch_vpn_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     query = update.callback_query
     if query is None or query.data is None:
         return
-    if update.effective_user is None or not check_authorization(update.effective_user.id):
+    if update.effective_user is None or not check_authorization(
+        update.effective_user.id
+    ):
         try:
             await query.answer("Unauthorized", show_alert=True)
         except Exception:
@@ -440,69 +511,96 @@ async def switch_vpn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text(
             text=f"<b>Switched to {target_name}!</b>\n\n{status_text}",
             reply_markup=reply_markup,
-            parse_mode='HTML'
+            parse_mode="HTML",
         )
     except Exception as e:
         if "not modified" not in str(e).lower():
             logger.warning(f"Could not edit message after switch: {e}")
 
 
-async def switch_vpn_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or not check_authorization(update.effective_user.id):
+async def switch_vpn_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    if update.effective_user is None or not check_authorization(
+        update.effective_user.id
+    ):
         return
 
     target = context.args[0].lower() if context.args else "auto"
     if target not in ["awg0", "tun0", "auto", "wg0"]:
         if update.message:
-            await update.message.reply_text("Usage: <code>/switch_vpn &lt;awg0|tun0|auto&gt;</code>", parse_mode='HTML')
+            await update.message.reply_text(
+                "Usage: <code>/switch_vpn &lt;awg0|tun0|auto&gt;</code>",
+                parse_mode="HTML",
+            )
         return
 
     if update.message:
-        await update.message.reply_text(f"Switching VPN backend to <b>{target}</b>...", parse_mode='HTML')
+        await update.message.reply_text(
+            f"Switching VPN backend to <b>{target}</b>...", parse_mode="HTML"
+        )
 
     run_hotspot_command(["--switch-vpn", target])
     status_text = await get_status_text()
     reply_markup = make_status_keyboard(status_text)
 
     if update.message:
-        await update.message.reply_text(text=status_text, reply_markup=reply_markup, parse_mode='HTML')
+        await update.message.reply_text(
+            text=status_text, reply_markup=reply_markup, parse_mode="HTML"
+        )
 
 
 async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or not check_authorization(update.effective_user.id):
+    if update.effective_user is None or not check_authorization(
+        update.effective_user.id
+    ):
         return
     if update.message is None:
         return
-    msg = await update.message.reply_text("Restarting Hotspot...", reply_markup=MAIN_KEYBOARD)
+    msg = await update.message.reply_text(
+        "Restarting Hotspot...", reply_markup=MAIN_KEYBOARD
+    )
     stdout, stderr, _ = run_hotspot_command(["--restart"])
     response = stdout if stdout else stderr
     await msg.edit_text(f"Restart Result:\n{response}")
 
 
-async def restart_vpn_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or not check_authorization(update.effective_user.id):
+async def restart_vpn_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    if update.effective_user is None or not check_authorization(
+        update.effective_user.id
+    ):
         return
     if update.message is None:
         return
-    msg = await update.message.reply_text("Restarting VPN connection...", reply_markup=MAIN_KEYBOARD)
+    msg = await update.message.reply_text(
+        "Restarting VPN connection...", reply_markup=MAIN_KEYBOARD
+    )
     stdout, stderr, _ = run_hotspot_command(["--restart-vpn"])
     response = stdout if stdout else stderr
     await msg.edit_text(f"Restart VPN Result:\n{response}")
 
 
 async def fix_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or not check_authorization(update.effective_user.id):
+    if update.effective_user is None or not check_authorization(
+        update.effective_user.id
+    ):
         return
     if update.message is None:
         return
-    msg = await update.message.reply_text("Running auto-fix for hotspot and VPN...", reply_markup=MAIN_KEYBOARD)
+    msg = await update.message.reply_text(
+        "Running auto-fix for hotspot and VPN...", reply_markup=MAIN_KEYBOARD
+    )
     stdout, stderr, _ = run_hotspot_command(["--fix"])
     response = stdout if stdout else stderr
     await msg.edit_text(f"Fix Result:\n{response}")
 
 
 async def clients_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or not check_authorization(update.effective_user.id):
+    if update.effective_user is None or not check_authorization(
+        update.effective_user.id
+    ):
         return
     if update.message is None:
         return
@@ -511,22 +609,32 @@ async def clients_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await update.message.reply_text(response, reply_markup=MAIN_KEYBOARD)
 
 
-async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_text_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Handle commands without slash (e.g., 'status' instead of '/status')"""
-    if update.effective_user is None or not check_authorization(update.effective_user.id):
+    if update.effective_user is None or not check_authorization(
+        update.effective_user.id
+    ):
         return
     if update.message is None or update.message.text is None:
         return
 
     raw_text = update.message.text.strip().lower()
-    text = re.sub(r'^[^\w/]+', '', raw_text).strip()
+    text = re.sub(r"^[^\w/]+", "", raw_text).strip()
     normalized = text.replace(" ", "_")
 
     if text in ["status", "stat"] or normalized == "status":
         await status_command(update, context)
-    elif text in ["switch vpn", "switch_vpn", "switch"] or normalized in ["switch_vpn", "switch"]:
+    elif text in ["switch vpn", "switch_vpn", "switch"] or normalized in [
+        "switch_vpn",
+        "switch",
+    ]:
         await switch_menu_command(update, context)
-    elif text in ["ipv6", "ipv6 mode", "ipv6_mode", "/ipv6"] or normalized in ["ipv6", "ipv6_mode"]:
+    elif text in ["ipv6", "ipv6 mode", "ipv6_mode", "/ipv6"] or normalized in [
+        "ipv6",
+        "ipv6_mode",
+    ]:
         await ipv6_menu_command(update, context)
     elif text.startswith("ipv6") or text.startswith("/ipv6"):
         parts = text.split()
@@ -537,7 +645,10 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             await ipv6_menu_command(update, context)
     elif text in ["restart"] or normalized == "restart":
         await restart_command(update, context)
-    elif text in ["restart vpn", "restart_vpn", "vpn restart"] or normalized == "restart_vpn":
+    elif (
+        text in ["restart vpn", "restart_vpn", "vpn restart"]
+        or normalized == "restart_vpn"
+    ):
         await restart_vpn_command(update, context)
     elif text in ["fix", "auto fix", "autofix"] or normalized == "fix":
         await fix_command(update, context)
@@ -545,7 +656,11 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         await clients_command(update, context)
     elif text in ["help"] or normalized == "help":
         await help_command(update, context)
-    elif text.startswith("switch_vpn") or text.startswith("switch ") or text in ["switch", "switch_awg", "switch_tun"]:
+    elif (
+        text.startswith("switch_vpn")
+        or text.startswith("switch ")
+        or text in ["switch", "switch_awg", "switch_tun"]
+    ):
         parts = text.split()
         if len(parts) > 1:
             context.args = [parts[1]]
@@ -578,11 +693,21 @@ def main():
         app.add_handler(CommandHandler("help", help_command))
         app.add_handler(CommandHandler("ipv6", ipv6_command))
 
-        app.add_handler(CallbackQueryHandler(switch_vpn_callback, pattern="^switch_(awg0|tun0|auto)$"))
-        app.add_handler(CallbackQueryHandler(ipv6_callback, pattern="^(ipv6_|menu_ipv6)"))
-        app.add_handler(CallbackQueryHandler(refresh_callback, pattern="^refresh_status$"))
+        app.add_handler(
+            CallbackQueryHandler(
+                switch_vpn_callback, pattern="^switch_(awg0|tun0|auto)$"
+            )
+        )
+        app.add_handler(
+            CallbackQueryHandler(ipv6_callback, pattern="^(ipv6_|menu_ipv6)")
+        )
+        app.add_handler(
+            CallbackQueryHandler(refresh_callback, pattern="^refresh_status$")
+        )
 
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
+        app.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)
+        )
 
         logger.info("Starting bot polling...")
         _bot_ready.set()

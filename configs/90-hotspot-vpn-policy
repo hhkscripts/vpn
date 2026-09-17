@@ -200,14 +200,12 @@ apply_policy() {
     iptables -t nat -C POSTROUTING -o "$VPN_IF" -j MASQUERADE 2>/dev/null || \
         iptables -t nat -A POSTROUTING -o "$VPN_IF" -j MASQUERADE
     for subnet in $MANAGEMENT_SUBNETS; do
-        case "$subnet" in
-            10.8.0.0/24)
-                ;;
-            *)
-                iptables -t nat -C POSTROUTING -s "$HOTSPOT_SUBNET" -d "$subnet" -o "$LAN_IF" -j MASQUERADE 2>/dev/null || \
-                    iptables -t nat -A POSTROUTING -s "$HOTSPOT_SUBNET" -d "$subnet" -o "$LAN_IF" -j MASQUERADE
-                ;;
-        esac
+        target_dev="$(ip route get "${subnet%/*}" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1); exit}')"
+        if [ "$target_dev" = "$VPN_IF" ] || [ "$subnet" = "10.8.0.0/24" ]; then
+            continue
+        fi
+        iptables -t nat -C POSTROUTING -s "$HOTSPOT_SUBNET" -d "$subnet" -o "$LAN_IF" -j MASQUERADE 2>/dev/null || \
+            iptables -t nat -A POSTROUTING -s "$HOTSPOT_SUBNET" -d "$subnet" -o "$LAN_IF" -j MASQUERADE
     done
     iptables -t nat -C POSTROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -o "$LAN_IF" -j MASQUERADE 2>/dev/null || \
         iptables -t nat -A POSTROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -o "$LAN_IF" -j MASQUERADE
@@ -224,14 +222,12 @@ apply_policy() {
     iptables -A "$IPTABLES_CHAIN" -i "$HOTSPOT_IF" -o "$LAN_IF" -s "$HOTSPOT_SUBNET" -m set --match-set "$LOCAL_BYPASS_IPSET" dst -j ACCEPT
     iptables -A "$IPTABLES_CHAIN" -i "$LAN_IF" -o "$HOTSPOT_IF" -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
     for subnet in $MANAGEMENT_SUBNETS; do
-        case "$subnet" in
-            10.8.0.0/24)
-                ;;
-            *)
-                iptables -A "$IPTABLES_CHAIN" -i "$HOTSPOT_IF" -o "$LAN_IF" -s "$HOTSPOT_SUBNET" -d "$subnet" -j ACCEPT
-                iptables -A "$IPTABLES_CHAIN" -i "$LAN_IF" -o "$HOTSPOT_IF" -d "$HOTSPOT_SUBNET" -s "$subnet" -m state --state RELATED,ESTABLISHED -j ACCEPT
-                ;;
-        esac
+        target_dev="$(ip route get "${subnet%/*}" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1); exit}')"
+        if [ "$target_dev" = "$VPN_IF" ] || [ "$subnet" = "10.8.0.0/24" ]; then
+            continue
+        fi
+        iptables -A "$IPTABLES_CHAIN" -i "$HOTSPOT_IF" -o "$LAN_IF" -s "$HOTSPOT_SUBNET" -d "$subnet" -j ACCEPT
+        iptables -A "$IPTABLES_CHAIN" -i "$LAN_IF" -o "$HOTSPOT_IF" -d "$HOTSPOT_SUBNET" -s "$subnet" -m state --state RELATED,ESTABLISHED -j ACCEPT
     done
     iptables -A "$IPTABLES_CHAIN" -i "$HOTSPOT_IF" -o "$VPN_IF" -s "$HOTSPOT_SUBNET" -j ACCEPT
     iptables -A "$IPTABLES_CHAIN" -i "$VPN_IF" -o "$HOTSPOT_IF" -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT

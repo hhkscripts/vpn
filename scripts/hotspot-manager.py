@@ -23,6 +23,7 @@ class Config(TypedDict):
     interface_wlan: str
     log_file: str
     ping_target: str
+    hotspot_subnet: str
 
 
 class PingStatus(TypedDict):
@@ -67,6 +68,7 @@ CONFIG: Config = {
     "interface_wlan": "wlan0",
     "log_file": "/var/log/hotspot-manager.log",
     "ping_target": "8.8.8.8",
+    "hotspot_subnet": "10.42.0.0/24",
 }
 
 GITHUB_ROUTE_SCRIPT = "/usr/local/bin/github-vpn-routes.sh"
@@ -92,6 +94,38 @@ EMOJI_GLOBE = CUSTOM_EMOJIS["globe"]
 EMOJI_CROSS = CUSTOM_EMOJIS["cross"]
 EMOJI_PING = CUSTOM_EMOJIS["ping"]
 GOODWIFI_CONF = "/etc/goodwifi/goodwifi.conf"
+
+
+def load_goodwifi_conf() -> None:
+    conf_path = GOODWIFI_CONF
+    if not os.path.exists(conf_path) and os.path.exists(f"/host{GOODWIFI_CONF}"):
+        conf_path = f"/host{GOODWIFI_CONF}"
+
+    if os.path.exists(conf_path):
+        try:
+            with open(conf_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip('"').strip("'")
+                    if k == "HOTSPOT_IF" and v:
+                        CONFIG["interface_wlan"] = v
+                    elif k == "HOTSPOT_IP" and v:
+                        CONFIG["hotspot_ip"] = v
+                    elif k == "HOTSPOT_SUBNET" and v:
+                        CONFIG["hotspot_subnet"] = v
+                    elif k == "PING_TARGET" and v:
+                        CONFIG["ping_target"] = v
+                    elif k == "VPN_UUID" and v:
+                        CONFIG["vpn_name"] = v
+        except Exception:
+            pass
+
+
+load_goodwifi_conf()
 
 
 def update_goodwifi_conf(key: str, value: str) -> bool:
@@ -387,7 +421,11 @@ def apply_vpn_policy(interface: Optional[str] = None) -> bool:
         and (f"default dev {interface}" in route_out or "default dev" in route_out)
         and rule_ok
         and (
-            "from 10.42.0.0/24 lookup 100" in rule_out
+            f"from {CONFIG.get('hotspot_subnet', '10.42.0.0/24')} lookup 100"
+            in rule_out
+            or f"from {CONFIG.get('hotspot_subnet', '10.42.0.0/24')} lookup github_vpn"
+            in rule_out
+            or "from 10.42.0.0/24 lookup 100" in rule_out
             or "from 10.42.0.0/24 lookup github_vpn" in rule_out
         )
     )

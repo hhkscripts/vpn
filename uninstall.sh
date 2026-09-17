@@ -8,6 +8,13 @@ PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)
 POLICY_SCRIPT="$PROJECT_DIR/configs/90-hotspot-vpn-policy"
 BACKUP_ROOT="$PROJECT_DIR/backup"
 
+HOTSPOT_IF="wlan0"
+if [ -f /etc/goodwifi/goodwifi.conf ]; then
+  # shellcheck source=/dev/null
+  . /etc/goodwifi/goodwifi.conf
+fi
+HOTSPOT_IF="${HOTSPOT_IF:-wlan0}"
+
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
@@ -45,7 +52,7 @@ restore_or_remove() {
 cleanup_dhcpcd_block() {
   if [ -e /etc/dhcpcd.conf ]; then
     sudo sed -i '/^# BEGIN GoodWifi managed block$/,/^# END GoodWifi managed block$/d' /etc/dhcpcd.conf
-    sudo sed -i '/^# Access Point configuration for wlan0$/,/^    nohook wpa_supplicant$/d' /etc/dhcpcd.conf
+    sudo sed -i '/^# Access Point configuration for /d; /^interface '"$HOTSPOT_IF"'$/,/^    nohook wpa_supplicant$/d' /etc/dhcpcd.conf
   fi
 }
 
@@ -93,8 +100,18 @@ else
 fi
 sudo systemctl daemon-reload
 
-sudo ip addr flush dev wlan0 2>/dev/null || true
+sudo ip addr flush dev "$HOTSPOT_IF" 2>/dev/null || true
 
-sed -i '/^alias hotspot=/d; /^alias hs=/d; /^alias hf=/d' "$HOME/.bashrc"
+remove_aliases_for() {
+  local target_home="$1"
+  local rc_file="$target_home/.bashrc"
+  [ -f "$rc_file" ] || return 0
+  sed -i '/^alias hotspot=/d; /^alias hs=/d; /^alias hf=/d' "$rc_file"
+}
 
-echo "Uninstall complete. Reboot if wlan0 or NetworkManager state needs a full reset."
+remove_aliases_for "$HOME"
+if [ -n "${SUDO_USER:-}" ] && [ -d "/home/$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
+  remove_aliases_for "/home/$SUDO_USER"
+fi
+
+echo "Uninstall complete. Reboot if $HOTSPOT_IF or NetworkManager state needs a full reset."

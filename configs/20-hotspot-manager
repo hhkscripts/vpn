@@ -13,6 +13,7 @@ HOTSPOT_MGR="/usr/local/bin/hotspot-manager.py"
 VPN_BACKEND="${VPN_BACKEND:-auto}"
 LAN_IF="${LAN_IF:-eth0}"
 HOTSPOT_IF="${HOTSPOT_IF:-wlan0}"
+PING_TARGET="${PING_TARGET:-8.8.8.8}"
 
 log_message() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
@@ -38,7 +39,7 @@ case "${2:-}" in
             log_message "$LAN_IF connected, checking network..."
             sleep 5
 
-            if ping -c 2 -W 3 8.8.8.8 >/dev/null 2>&1; then
+            if ping -c 2 -W 3 "$PING_TARGET" >/dev/null 2>&1; then
                 log_message "Internet available"
                 CLIENTS="$(iw dev "$HOTSPOT_IF" station dump 2>/dev/null | awk '/Station/ {count++} END {print count + 0}')"
                 if [ "$CLIENTS" -gt 0 ]; then

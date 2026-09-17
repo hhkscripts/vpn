@@ -156,8 +156,13 @@ restart_adguard_if_configured() {
 render_hostapd_conf() {
   local ssid="$1"
   local password="$2"
-  GENERATED_HOSTAPD_CONF="$(mktemp)"
-  awk -v ssid="$ssid" -v password="$password" '
+  local iface="${HOTSPOT_IF:-wlan0}"
+
+  awk -v ssid="$ssid" -v password="$password" -v iface="$iface" '
+    $0 ~ "^interface=" {
+      print "interface=" iface
+      next
+    }
     $0 ~ "^ssid=" {
       print "ssid=" ssid
       next
@@ -218,14 +223,6 @@ log_info "Installing required packages"
 sudo apt update
 sudo apt install -y hostapd dnsmasq ipset ipset-persistent iptables-persistent netfilter-persistent python3 python3-pip curl wget util-linux
 
-log_info "Installing config files from configs/"
-copy_file "$GENERATED_HOSTAPD_CONF" /etc/hostapd/hostapd.conf 0644
-copy_file "$CONFIG_DIR/hostapd-override.conf" /etc/systemd/system/hostapd.service.d/override.conf 0644
-copy_file "$CONFIG_DIR/dnsmasq.conf" /etc/dnsmasq.conf 0644
-copy_file "$CONFIG_DIR/NetworkManager.conf" /etc/NetworkManager/NetworkManager.conf 0644
-copy_file "$CONFIG_DIR/20-hotspot-manager" /etc/NetworkManager/dispatcher.d/20-hotspot-manager 0755
-copy_file "$CONFIG_DIR/90-hotspot-vpn-policy" /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy 0755
-
 log_info "Configuring GoodWifi default configuration"
 backup_file /etc/goodwifi/goodwifi.conf
 sudo mkdir -p /etc/goodwifi
@@ -234,10 +231,46 @@ if [ ! -f /etc/goodwifi/goodwifi.conf ]; then
 fi
 copy_file "$CONFIG_DIR/github-ipv4-ranges.txt" /etc/goodwifi/github-ipv4-ranges.txt 0644
 
-log_info "Configuring dhcpcd wlan0 block"
+# Load settings from goodwifi.conf
+# shellcheck source=/dev/null
+[ -f /etc/goodwifi/goodwifi.conf ] && . /etc/goodwifi/goodwifi.conf
+HOTSPOT_IF="${HOTSPOT_IF:-wlan0}"
+HOTSPOT_IP="${HOTSPOT_IP:-10.42.0.1}"
+HOTSPOT_SUBNET="${HOTSPOT_SUBNET:-10.42.0.0/24}"
+
+log_info "Installing config files from configs/ for interface $HOTSPOT_IF"
+render_hostapd_conf "$ssid" "$password"
+copy_file "$GENERATED_HOSTAPD_CONF" /etc/hostapd/hostapd.conf 0644
+
+tmp_hostapd_override="$(mktemp)"
+sed "s/wlan0/$HOTSPOT_IF/g" "$CONFIG_DIR/hostapd-override.conf" > "$tmp_hostapd_override"
+copy_file "$tmp_hostapd_override" /etc/systemd/system/hostapd.service.d/override.conf 0644
+rm -f "$tmp_hostapd_override"
+
+tmp_dnsmasq="$(mktemp)"
+sed -e "s/interface=wlan0/interface=$HOTSPOT_IF/g"     -e "s/10\.42\.0\.1/$HOTSPOT_IP/g"     -e "s/10\.42\.0\./${HOTSPOT_IP%.*\.}./g"     "$CONFIG_DIR/dnsmasq.conf" > "$tmp_dnsmasq"
+copy_file "$tmp_dnsmasq" /etc/dnsmasq.conf 0644
+rm -f "$tmp_dnsmasq"
+
+tmp_nm="$(mktemp)"
+sed "s/wlan0/$HOTSPOT_IF/g" "$CONFIG_DIR/NetworkManager.conf" > "$tmp_nm"
+copy_file "$tmp_nm" /etc/NetworkManager/NetworkManager.conf 0644
+rm -f "$tmp_nm"
+
+copy_file "$CONFIG_DIR/20-hotspot-manager" /etc/NetworkManager/dispatcher.d/20-hotspot-manager 0755
+copy_file "$CONFIG_DIR/90-hotspot-vpn-policy" /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy 0755
+
+log_info "Configuring dhcpcd $HOTSPOT_IF block"
 backup_file /etc/dhcpcd.conf
-sudo sed -i '/^# Access Point configuration for wlan0$/,/^    nohook wpa_supplicant$/d' /etc/dhcpcd.conf 2>/dev/null || true
-ensure_managed_block /etc/dhcpcd.conf "# BEGIN GoodWifi managed block" "# END GoodWifi managed block" "$CONFIG_DIR/dhcpcd.conf"
+sudo sed -i '/^# Access Point configuration for /d; /^interface wlan/d; /^static ip_address=10\.42\./d; /^    nohook wpa_supplicant$/d' /etc/dhcpcd.conf 2>/dev/null || true
+tmp_dhcpcd="$(mktemp)"
+cat <<DHCPCD_EOF > "$tmp_dhcpcd"
+interface $HOTSPOT_IF
+    static ip_address=$HOTSPOT_IP/24
+    nohook wpa_supplicant
+DHCPCD_EOF
+ensure_managed_block /etc/dhcpcd.conf "# BEGIN GoodWifi managed block" "# END GoodWifi managed block" "$tmp_dhcpcd"
+rm -f "$tmp_dhcpcd"
 
 backup_file /etc/default/hostapd
 echo 'DAEMON_CONF="/etc/hostapd/hostapd.conf"' | sudo tee /etc/default/hostapd >/dev/null
@@ -247,12 +280,22 @@ copy_file "$SCRIPT_DIR/hotspot-manager.py" /usr/local/bin/hotspot-manager.py 075
 copy_file "$SCRIPT_DIR/github-vpn-routes.sh" /usr/local/bin/github-vpn-routes.sh 0755
 
 log_info "Installing shell aliases"
-sed -i '/^alias hotspot=/d; /^alias hs=/d; /^alias hf=/d' "$HOME/.bashrc"
-{
-  echo 'alias hotspot="sudo /usr/local/bin/hotspot-manager.py"'
-  echo 'alias hs="sudo /usr/local/bin/hotspot-manager.py --status"'
-  echo 'alias hf="sudo /usr/local/bin/hotspot-manager.py --fix"'
-} >> "$HOME/.bashrc"
+install_aliases_for() {
+  local target_home="$1"
+  local rc_file="$target_home/.bashrc"
+  [ -f "$rc_file" ] || return 0
+  sed -i '/^alias hotspot=/d; /^alias hs=/d; /^alias hf=/d' "$rc_file"
+  {
+    echo 'alias hotspot="sudo /usr/local/bin/hotspot-manager.py"'
+    echo 'alias hs="sudo /usr/local/bin/hotspot-manager.py --status"'
+    echo 'alias hf="sudo /usr/local/bin/hotspot-manager.py --fix"'
+  } >> "$rc_file"
+}
+
+install_aliases_for "$HOME"
+if [ -n "${SUDO_USER:-}" ] && [ -d "/home/$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
+  install_aliases_for "/home/$SUDO_USER"
+fi
 
 log_info "Configuring system forwarding and wlan0 ownership"
 sudo sysctl -w net.ipv4.ip_forward=1
@@ -271,13 +314,13 @@ target_vpn="$(get_active_vpn_if 2>/dev/null || echo "tun0")"
 sudo /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy "$target_vpn" apply
 sudo netfilter-persistent save
 
-log_info "Configuring wlan0 address"
+log_info "Configuring $HOTSPOT_IF address"
 sudo systemctl stop hostapd dnsmasq 2>/dev/null || true
-sudo ip link set wlan0 down || true
-sudo ip addr flush dev wlan0 || true
-sudo ip link set wlan0 up
-sudo /sbin/iw dev wlan0 set power_save off 2>/dev/null || true
-sudo ip addr add 10.42.0.1/24 dev wlan0 2>/dev/null || true
+sudo ip link set "$HOTSPOT_IF" down || true
+sudo ip addr flush dev "$HOTSPOT_IF" || true
+sudo ip link set "$HOTSPOT_IF" up
+sudo /sbin/iw dev "$HOTSPOT_IF" set power_save off 2>/dev/null || true
+sudo ip addr add "$HOTSPOT_IP/24" dev "$HOTSPOT_IF" 2>/dev/null || true
 
 log_info "Restarting NetworkManager and hotspot services"
 sudo systemctl daemon-reload

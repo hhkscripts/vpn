@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_DIR="${RUNNER_REPO_DIR:-/home/hhk/Projects/vpn}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_DIR="${RUNNER_REPO_DIR:-$DEFAULT_REPO_DIR}"
 REMOTE="${RUNNER_REMOTE:-origin}"
 BRANCH="${RUNNER_BRANCH:-main}"
 
