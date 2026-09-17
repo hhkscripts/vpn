@@ -9,7 +9,7 @@ GoodWifi is a resilient Raspberry Pi Wi-Fi hotspot designed to defeat censorship
 - **Multi-Backend VPN**: Native support for **AmneziaWG (`awg0`)** (obfuscated anti-DPI WireGuard), **WireGuard (`wg0`)**, and **OpenVPN (`tun0`)**, with automatic health checking and failover.
 - **Selective Policy Routing**: Hotspot client traffic goes through the active VPN; Raspberry Pi host services, SSH, and Docker containers remain reachable on Ethernet (`eth0`).
 - **Selective GitHub Routing**: Routes GitHub API, Git, and GitHub Actions runner traffic through the VPN to bypass local censorship while keeping the rest of host traffic on local LAN.
-- **Selective Local Bypass (Binance / P2P)**: Automatically routes specific services (such as Binance) through the local Myanmar ISP gateway via DNS ipsets (`local_routes`) to avoid VPN geo-blocking.
+- **Selective Local Bypass (Binance / P2P / YouTube)**: Automatically routes specific services (such as Binance, local banking, and YouTube) through the local Myanmar ISP gateway via DNS ipsets (`local_routes`) to avoid VPN geo-blocking and optimize streaming speeds.
 - **AdGuard Home DNS Filtering**: Blocks ads and trackers network-wide while dynamically populating policy routing ipsets.
 - **Telegram Bot Remote Control**: Manage VPN backends, inspect connected clients, and monitor system health with interactive inline buttons and Telegram Premium status emojis.
 
@@ -33,7 +33,7 @@ Traffic is split dynamically using Linux policy routing, packet marks, and ipset
 # ip rule show
 997:  from 10.42.0.0/24 to 10.8.0.0/24 lookup main
 997:  from 10.42.0.0/24 to 192.168.100.0/24 lookup main
-998:  from all fwmark 0x65 lookup main              # local_routes (Binance)
+998:  from all fwmark 0x65 lookup main              # local_routes (Binance / Local Bypass / YouTube)
 999:  from all fwmark 0x64 lookup 100               # vpn_routes
 1000: from 10.42.0.0/24 lookup 100                  # all other client traffic
 ```
@@ -168,15 +168,16 @@ hf                     # Run automated self-healing fix
 GoodWifi clients query `10.42.0.1:53` for DNS. AdGuard Home performs ad-blocking, anti-tracking, and routes specific domains into kernel ipsets:
 
 - `github.com` & subdomains -> `vpn_domains`
-- `binance.com`, `binance.info`, `bnbstatic.com` -> `local_routes`
+- `binance.com`, `bnbstatic.com`, Myanmar banks, `youtube.com`, `googlevideo.com`, `ytimg.com` -> `local_routes`
 
 ### Verifying DNS & Ipsets
 
 ```bash
 # Test DNS resolution
 dig @10.42.0.1 binance.com
+dig @10.42.0.1 youtube.com
 
-# Verify that Binance IPs were added to bypass set
+# Verify that resolved IPs were added to bypass set
 sudo ipset list local_routes
 
 # Verify GitHub set

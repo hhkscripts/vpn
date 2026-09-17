@@ -11,6 +11,7 @@ dns:
   ipset:
     - github.com,githubusercontent.com,actions.githubusercontent.com/vpn_domains
     - binance.com,binance.me,binance.info,binance.org,bnbstatic.com,bntrace.com,kbzpay.com,kbzbank.com,kbzmoney.com,kbzpayapi.com,wavemoney.io,wavemoney.com.mm,wavepay.com.mm,wavepay.io,cbbank.com.mm,cbpay.com.mm,cbbank.net,ayabank.com,ayapay.com,ayapay.com.mm,ayainnovation.com,yomabank.com,yomanext.com,yoma.com.mm,uab.com.mm,uabpay.com.mm,uabpaybusiness.com,uabpayupi.com/local_routes
+    - youtube.com,youtu.be,googlevideo.com,ytimg.com,youtube-nocookie.com,youtubekids.com,yt.be,youtubei.googleapis.com,yt3.ggpht.com/local_routes
 
 # The default AdGuard DNS filter blocks Google Analytics and several Google Ads
 # endpoints required by the Analytics and AdMob management dashboards.  Keep
