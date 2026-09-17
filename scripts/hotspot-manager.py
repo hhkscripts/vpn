@@ -55,6 +55,7 @@ class HotspotStatus(TypedDict):
     dns_working: bool
     internet: bool
     ping: PingStatus
+    ipv6_protection: str
 
 
 CONFIG: Config = {
@@ -93,6 +94,41 @@ EMOJI_PING = CUSTOM_EMOJIS["ping"]
 GOODWIFI_CONF = "/etc/goodwifi/goodwifi.conf"
 
 
+def update_goodwifi_conf(key: str, value: str) -> bool:
+    try:
+        run_args(["sudo", "mkdir", "-p", os.path.dirname(GOODWIFI_CONF)])
+        content = ""
+        ok, out, _ = run_args(["cat", GOODWIFI_CONF])
+        if ok and out:
+            lines = out.splitlines()
+            found = False
+            new_lines = []
+            for line in lines:
+                if line.strip().startswith(f"{key}="):
+                    new_lines.append(f'{key}="{value}"')
+                    found = True
+                else:
+                    new_lines.append(line)
+            if not found:
+                new_lines.append(f'{key}="{value}"')
+            content = "\n".join(new_lines) + "\n"
+        else:
+            content = f'{key}="{value}"\n'
+
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as tf:
+            tf.write(content)
+            temp_path = tf.name
+        run_args(["sudo", "cp", temp_path, GOODWIFI_CONF])
+        run_args(["sudo", "chmod", "0644", GOODWIFI_CONF])
+        os.unlink(temp_path)
+        return True
+    except Exception as e:
+        log(f"Could not update {GOODWIFI_CONF}: {e}", "WARN")
+        return False
+
+
 def get_configured_backend() -> str:
     if os.path.exists(GOODWIFI_CONF):
         try:
@@ -106,6 +142,23 @@ def get_configured_backend() -> str:
         except Exception:
             pass
     return "auto"
+
+
+def get_configured_ipv6_mode() -> str:
+    if os.path.exists(GOODWIFI_CONF):
+        try:
+            with open(GOODWIFI_CONF, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("IPV6_LEAK_PROTECTION="):
+                        val = (
+                            line.split("=", 1)[1].strip().strip('"').strip("'").lower()
+                        )
+                        if val in ["drop", "reject", "off"]:
+                            return val
+        except Exception:
+            pass
+    return "drop"
 
 
 def get_active_vpn_interface() -> tuple[str, str]:
@@ -350,13 +403,7 @@ def switch_vpn(target: str) -> bool:
         log(f"Invalid target: {target}. Choose from: awg0, tun0, wg0, auto", "ERROR")
         return False
 
-    try:
-        run_args(["sudo", "mkdir", "-p", os.path.dirname(GOODWIFI_CONF)])
-        run_args(
-            ["sudo", "sh", "-c", f'echo "VPN_BACKEND="{target}"" > {GOODWIFI_CONF}']
-        )
-    except Exception as e:
-        log(f"Could not write {GOODWIFI_CONF}: {e}", "WARN")
+    update_goodwifi_conf("VPN_BACKEND", target)
 
     log(f"Switching VPN backend to {target}...")
     if target in ["awg0", "wg0"]:
@@ -460,6 +507,16 @@ def refresh_github_routes() -> None:
         log(f"GitHub route refresh failed{detail}", "WARN")
 
 
+def set_ipv6_mode(mode: str) -> bool:
+    mode = mode.lower()
+    if mode not in ["drop", "reject", "off"]:
+        log(f"Invalid mode: {mode}. Choose from: drop, reject, off", "ERROR")
+        return False
+    update_goodwifi_conf("IPV6_LEAK_PROTECTION", mode)
+    log(f"Set IPV6_LEAK_PROTECTION to {mode}")
+    return apply_vpn_policy()
+
+
 def fix_hotspot() -> bool:
     log("Restarting hotspot services...")
     run_args(["sudo", "systemctl", "restart", "hostapd", "dnsmasq"])
@@ -492,6 +549,7 @@ def get_status() -> HotspotStatus:
         "dns_working": check_dns(),
         "internet": check_internet(),
         "ping": check_ping(),
+        "ipv6_protection": get_configured_ipv6_mode(),
     }
 
 
@@ -551,6 +609,8 @@ def print_status(status: HotspotStatus, telegram_format: bool = False) -> str:
         net_status = "Available" if internet_ok else "Down"
         net_icon = EMOJI_CHECK if internet_ok else EMOJI_CROSS
         lines.append(f"{net_icon} Internet: <code>{net_status}</code>")
+        ipv6_mode = status.get("ipv6_protection", "drop")
+        lines.append(f"🛡 IPv6 Protection: <code>{ipv6_mode.upper()}</code>")
 
         ping_target = (
             ping.get("target", CONFIG["ping_target"]) if ping else CONFIG["ping_target"]
@@ -614,6 +674,8 @@ def print_status(status: HotspotStatus, telegram_format: bool = False) -> str:
     internet_icon = "✅" if status["internet"] else "❌"
     internet_state = "Available" if status["internet"] else "Down"
     output.append(f"  {internet_icon} Internet: {internet_state}")
+    ipv6_mode = status.get("ipv6_protection", "drop")
+    output.append(f"  🛡 IPv6 Protection: {ipv6_mode.upper()}")
 
     ping = status.get("ping", {})
     ping_icon = "✅" if ping.get("ok") else "❌"
@@ -642,6 +704,13 @@ def main() -> None:
         choices=["awg0", "tun0", "wg0", "auto"],
         help="Switch active VPN backend",
     )
+    parser.add_argument(
+        "--set-ipv6",
+        "--ipv6",
+        dest="set_ipv6",
+        choices=["drop", "reject", "off"],
+        help="Set IPv6 leak protection mode (drop, reject, off)",
+    )
     parser.add_argument("--clients", action="store_true")
     parser.add_argument(
         "--telegram", action="store_true", help="Output in HTML format for Telegram"
@@ -658,6 +727,12 @@ def main() -> None:
 
     if args.switch_vpn:
         success = switch_vpn(args.switch_vpn)
+        output = print_status(get_status(), telegram_format=telegram_format)
+        print(output)
+        sys.exit(0 if success else 1)
+
+    if args.set_ipv6:
+        success = set_ipv6_mode(args.set_ipv6)
         output = print_status(get_status(), telegram_format=telegram_format)
         print(output)
         sys.exit(0 if success else 1)

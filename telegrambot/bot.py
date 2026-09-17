@@ -46,6 +46,7 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
             KeyboardButton("Switch VPN", icon_custom_emoji_id=EMOJI_REFRESH),
         ],
         [
+            KeyboardButton("IPv6 Mode", icon_custom_emoji_id=EMOJI_TOOLS),
             KeyboardButton("Help", icon_custom_emoji_id=EMOJI_HELP),
         ],
     ],
@@ -146,12 +147,17 @@ def make_status_keyboard(status_text: str) -> InlineKeyboardMarkup:
             icon_custom_emoji_id=EMOJI_LOCK,
         )
 
+    ipv6_btn = InlineKeyboardButton(
+        "🛡 IPv6 Mode",
+        callback_data="menu_ipv6",
+        icon_custom_emoji_id=EMOJI_TOOLS,
+    )
     refresh_btn = InlineKeyboardButton(
         "Refresh",
         callback_data="refresh_status",
         icon_custom_emoji_id=EMOJI_REFRESH,
     )
-    return InlineKeyboardMarkup([[switch_btn], [refresh_btn]])
+    return InlineKeyboardMarkup([[switch_btn], [ipv6_btn, refresh_btn]])
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -162,6 +168,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 <code>status</code> - Show hotspot and VPN status
 <code>switch_vpn &lt;awg0|tun0|auto&gt;</code> - Switch active VPN backend
+<code>ipv6 &lt;drop|reject|off&gt;</code> - Configure IPv6 leak protection
 <code>restart</code> - Restart hotspot services
 <code>restart_vpn</code> - Restart VPN connection
 <code>fix</code> - Auto-fix common issues
@@ -240,6 +247,144 @@ def get_current_backend_name() -> str:
         "auto": "Auto",
     }
     return names.get(backend, backend)
+
+
+def get_current_ipv6_mode() -> str:
+    conf_path = "/host/etc/goodwifi/goodwifi.conf"
+    if not os.path.exists(conf_path):
+        conf_path = "/etc/goodwifi/goodwifi.conf"
+
+    if os.path.exists(conf_path):
+        try:
+            with open(conf_path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("IPV6_LEAK_PROTECTION="):
+                        val = (
+                            line.split("=", 1)[1]
+                            .strip()
+                            .strip('"')
+                            .strip("'")
+                            .lower()
+                        )
+                        if val in ["drop", "reject", "off"]:
+                            return val
+        except Exception:
+            pass
+    return "drop"
+
+
+async def ipv6_menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None or not check_authorization(update.effective_user.id):
+        return
+
+    current = get_current_ipv6_mode().upper()
+    keyboard = [
+        [
+            InlineKeyboardButton("🔴 Drop (Default)", callback_data="ipv6_drop"),
+            InlineKeyboardButton("🟡 Reject (Fast)", callback_data="ipv6_reject"),
+        ],
+        [
+            InlineKeyboardButton("⚪ Off (Allow IPv6)", callback_data="ipv6_off"),
+        ],
+        [
+            InlineKeyboardButton("🔄 Refresh Status", callback_data="refresh_status"),
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    text = (
+        f"<b>🛡 IPv6 Leak Protection:</b>\n\n"
+        f"Current Mode: <code>{current}</code>\n\n"
+        f"• <b>Drop</b>: Silently drop client IPv6 packets (Recommended)\n"
+        f"• <b>Reject</b>: Reject with ICMPv6 unreachable (Fail fast)\n"
+        f"• <b>Off</b>: Disable IPv6 blocking (Allow IPv6)\n\n"
+        f"Choose an option below to set:"
+    )
+    if update.message:
+        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='HTML')
+
+
+async def ipv6_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query is None or query.data is None:
+        return
+    if update.effective_user is None or not check_authorization(update.effective_user.id):
+        try:
+            await query.answer("Unauthorized", show_alert=True)
+        except Exception:
+            pass
+        return
+
+    if query.data == "menu_ipv6":
+        current = get_current_ipv6_mode().upper()
+        keyboard = [
+            [
+                InlineKeyboardButton("🔴 Drop (Default)", callback_data="ipv6_drop"),
+                InlineKeyboardButton("🟡 Reject (Fast)", callback_data="ipv6_reject"),
+            ],
+            [
+                InlineKeyboardButton("⚪ Off (Allow IPv6)", callback_data="ipv6_off"),
+            ],
+            [
+                InlineKeyboardButton("🔄 Refresh Status", callback_data="refresh_status"),
+            ],
+        ]
+        text = (
+            f"<b>🛡 IPv6 Leak Protection:</b>\n\n"
+            f"Current Mode: <code>{current}</code>\n\n"
+            f"• <b>Drop</b>: Silently drop client IPv6 packets (Recommended)\n"
+            f"• <b>Reject</b>: Reject with ICMPv6 unreachable (Fail fast)\n"
+            f"• <b>Off</b>: Disable IPv6 blocking (Allow IPv6)\n\n"
+            f"Choose an option below to set:"
+        )
+        try:
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+        except Exception:
+            pass
+        return
+
+    mode = query.data.replace("ipv6_", "")
+    try:
+        await query.answer(f"Setting IPv6 protection to {mode.upper()}...")
+    except Exception:
+        pass
+
+    run_hotspot_command(["--set-ipv6", mode])
+    await asyncio.sleep(1)
+    status_text = await get_status_text()
+    reply_markup = make_status_keyboard(status_text)
+
+    try:
+        await query.edit_message_text(
+            text=f"<b>IPv6 Protection updated to {mode.upper()}!</b>\n\n{status_text}",
+            reply_markup=reply_markup,
+            parse_mode='HTML',
+        )
+    except Exception as e:
+        if "not modified" not in str(e).lower():
+            logger.warning(f"Could not edit message after ipv6 switch: {e}")
+
+
+async def ipv6_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None or not check_authorization(update.effective_user.id):
+        return
+
+    target = context.args[0].lower() if context.args else None
+    if not target or target not in ["drop", "reject", "off"]:
+        await ipv6_menu_command(update, context)
+        return
+
+    run_hotspot_command(["--set-ipv6", target])
+    await asyncio.sleep(1)
+    status_text = await get_status_text()
+    reply_markup = make_status_keyboard(status_text)
+    if update.message:
+        await update.message.reply_text(
+            f"<b>IPv6 Protection set to {target.upper()}!</b>\n\n{status_text}",
+            reply_markup=reply_markup,
+            parse_mode='HTML',
+        )
 
 
 async def switch_menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -381,6 +526,15 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         await status_command(update, context)
     elif text in ["switch vpn", "switch_vpn", "switch"] or normalized in ["switch_vpn", "switch"]:
         await switch_menu_command(update, context)
+    elif text in ["ipv6", "ipv6 mode", "ipv6_mode", "/ipv6"] or normalized in ["ipv6", "ipv6_mode"]:
+        await ipv6_menu_command(update, context)
+    elif text.startswith("ipv6") or text.startswith("/ipv6"):
+        parts = text.split()
+        if len(parts) > 1 and parts[1] in ["drop", "reject", "off"]:
+            context.args = [parts[1]]
+            await ipv6_command(update, context)
+        else:
+            await ipv6_menu_command(update, context)
     elif text in ["restart"] or normalized == "restart":
         await restart_command(update, context)
     elif text in ["restart vpn", "restart_vpn", "vpn restart"] or normalized == "restart_vpn":
@@ -422,8 +576,10 @@ def main():
         app.add_handler(CommandHandler("fix", fix_command))
         app.add_handler(CommandHandler("clients", clients_command))
         app.add_handler(CommandHandler("help", help_command))
+        app.add_handler(CommandHandler("ipv6", ipv6_command))
 
         app.add_handler(CallbackQueryHandler(switch_vpn_callback, pattern="^switch_(awg0|tun0|auto)$"))
+        app.add_handler(CallbackQueryHandler(ipv6_callback, pattern="^(ipv6_|menu_ipv6)"))
         app.add_handler(CallbackQueryHandler(refresh_callback, pattern="^refresh_status$"))
 
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
