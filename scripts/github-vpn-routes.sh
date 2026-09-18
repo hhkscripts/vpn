@@ -140,6 +140,10 @@ for key in keys:
         if network.version == 4:
             ranges.add(str(network))
 
+# Debian / Fastly package mirror ranges to ensure apt update/upgrade bypasses local blocks
+for extra in ("151.101.0.0/16", "199.232.0.0/16"):
+    ranges.add(extra)
+
 for value in sorted(ranges, key=lambda item: ipaddress.ip_network(item)):
     print(value)
 PY
