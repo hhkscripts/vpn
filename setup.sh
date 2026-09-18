@@ -245,6 +245,11 @@ restart_adguard_if_configured() {
         sudo sed -i '0,/\/local_routes/s//&\n    - youtube.com,youtu.be,googlevideo.com,ytimg.com,youtube-nocookie.com,youtubekids.com,yt.be,youtubei.googleapis.com,yt3.ggpht.com\/local_routes/' "$compose_dir/conf/AdGuardHome.yaml"
       fi
     fi
+    if sudo grep -q "@@||googleads" "$compose_dir/conf/AdGuardHome.yaml" 2>/dev/null; then
+      log_info "Disabling Google Ads whitelist rules in AdGuard Home configuration"
+      sudo sed -i "s/^[[:space:]]*-[[:space:]]*['\"][^'\"]*google[^'\"]*['\"]/# &/" "$compose_dir/conf/AdGuardHome.yaml"
+      sudo sed -i 's/^user_rules:[[:space:]]*$/user_rules: []/' "$compose_dir/conf/AdGuardHome.yaml"
+    fi
   fi
 
   log_info "Starting/restarting AdGuard Home DNS service"
