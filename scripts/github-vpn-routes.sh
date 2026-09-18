@@ -79,7 +79,7 @@ fi
 
 existing_count=0
 if ipset list "$GITHUB_IPSET" >/dev/null 2>&1; then
-    existing_count="$(ipset list "$GITHUB_IPSET" | awk '/Number of entries:/ {print $4; exit}')"
+    existing_count="$(ipset list "$GITHUB_IPSET" -terse | awk '/Number of entries:/ {print $4; exit}')"
     existing_count="${existing_count:-0}"
 fi
 
