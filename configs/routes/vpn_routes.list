@@ -1,0 +1,4 @@
+# Route files included in vpn_routes (Active VPN Tunnel)
+# Comment out any file you wish to disable, or add new file paths here.
+github-routes.txt
+custom-vpn-routes.txt

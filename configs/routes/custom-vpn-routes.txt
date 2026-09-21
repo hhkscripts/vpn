@@ -1,0 +1,7 @@
+# Custom VPN Routes (User-Defined)
+# Add any additional domains or IPv4 CIDR blocks here that you want to route
+# through the active VPN tunnel.
+#
+# Examples:
+# blocked-site.com
+# 198.51.100.0/24

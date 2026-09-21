@@ -96,6 +96,8 @@ restore_or_remove /etc/NetworkManager/dispatcher.d/20-hotspot-manager "$BACKUP_D
 restore_or_remove /etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy "$BACKUP_DIR"
 restore_or_remove /usr/local/bin/hotspot-manager.py "$BACKUP_DIR"
 restore_or_remove /usr/local/bin/github-vpn-routes.sh "$BACKUP_DIR"
+restore_or_remove /usr/local/bin/apply-routes.sh "$BACKUP_DIR"
+sudo rm -rf /etc/goodwifi/routes 2>/dev/null || true
 restore_or_remove /etc/goodwifi/github-ipv4-ranges.txt "$BACKUP_DIR"
 restore_or_remove /etc/goodwifi/goodwifi.conf "$BACKUP_DIR"
 restore_or_remove /etc/sysctl.d/99-goodwifi.conf "$BACKUP_DIR"
@@ -118,7 +120,7 @@ remove_aliases_for() {
   local target_home="$1"
   local rc_file="$target_home/.bashrc"
   [ -f "$rc_file" ] || return 0
-  sed -i '/^alias hotspot=/d; /^alias hs=/d; /^alias hf=/d' "$rc_file"
+  sed -i '/^alias hotspot=/d; /^alias hs=/d; /^alias hf=/d; /^alias hr=/d' "$rc_file"
 }
 
 remove_aliases_for "$HOME"

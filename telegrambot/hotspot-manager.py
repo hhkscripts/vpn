@@ -78,6 +78,7 @@ CONFIG: Config = {
 }
 
 GITHUB_ROUTE_SCRIPT = "/usr/local/bin/github-vpn-routes.sh"
+APPLY_ROUTE_SCRIPT = "/usr/local/bin/apply-routes.sh"
 POLICY_SCRIPT = "/etc/NetworkManager/dispatcher.d/90-hotspot-vpn-policy"
 
 CUSTOM_EMOJIS = {
@@ -662,14 +663,20 @@ def restart_vpn() -> bool:
 
 
 def refresh_github_routes() -> None:
-    ok, _, err = run_args(["test", "-x", GITHUB_ROUTE_SCRIPT])
-    if not ok:
+    ok, _, _ = run_args(["test", "-x", GITHUB_ROUTE_SCRIPT])
+    if ok:
+        ok, _, err = run_args(["sudo", GITHUB_ROUTE_SCRIPT], timeout=120)
+        if not ok:
+            detail = f": {err}" if err else ""
+            log(f"GitHub route refresh failed{detail}", "WARN")
         return
 
-    ok, _, err = run_args(["sudo", GITHUB_ROUTE_SCRIPT], timeout=120)
-    if not ok:
-        detail = f": {err}" if err else ""
-        log(f"GitHub route refresh failed{detail}", "WARN")
+    ok, _, _ = run_args(["test", "-x", APPLY_ROUTE_SCRIPT])
+    if ok:
+        ok, _, err = run_args(["sudo", APPLY_ROUTE_SCRIPT], timeout=60)
+        if not ok:
+            detail = f": {err}" if err else ""
+            log(f"Route apply failed{detail}", "WARN")
 
 
 def get_adguard_enabled() -> bool:
@@ -1051,6 +1058,11 @@ def main() -> None:
     )
     parser.add_argument("--clients", action="store_true")
     parser.add_argument(
+        "--refresh-routes",
+        action="store_true",
+        help="Recompile and apply modular routes to AdGuard Home and ipsets",
+    )
+    parser.add_argument(
         "--telegram", action="store_true", help="Output in HTML format for Telegram"
     )
     parser.add_argument(
@@ -1062,6 +1074,11 @@ def main() -> None:
 
     if len(sys.argv) == 1:
         args.status = True
+
+    if args.refresh_routes:
+        refresh_github_routes()
+        print("Routes refreshed successfully.")
+        sys.exit(0)
 
     if args.switch_vpn:
         success = switch_vpn(args.switch_vpn)

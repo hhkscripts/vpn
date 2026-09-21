@@ -20,7 +20,7 @@ jobs:
           python -m pip install -r requirements-dev.txt
 
       - name: ShellCheck
-        run: shellcheck setup.sh uninstall.sh configs/20-hotspot-manager configs/90-hotspot-vpn-policy scripts/vpn-routing.sh scripts/openvpn-replay-wrapper scripts/openvpn-diversion.sh scripts/github-vpn-routes.sh scripts/github-runner-pull.sh scripts/auto-commit.sh tests/test-auto-commit.sh tests/test-vpn-scripts.sh
+        run: shellcheck setup.sh uninstall.sh configs/20-hotspot-manager configs/90-hotspot-vpn-policy scripts/vpn-routing.sh scripts/openvpn-replay-wrapper scripts/openvpn-diversion.sh scripts/github-vpn-routes.sh scripts/apply-routes.sh scripts/github-runner-pull.sh scripts/auto-commit.sh tests/test-auto-commit.sh tests/test-vpn-scripts.sh
 
       - name: Auto-commit integration tests
         run: tests/test-auto-commit.sh

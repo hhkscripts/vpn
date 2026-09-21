@@ -29,6 +29,7 @@ required_files=(
   "$CONFIG_DIR/90-hotspot-vpn-policy"
   "$SCRIPT_DIR/hotspot-manager.py"
   "$SCRIPT_DIR/github-vpn-routes.sh"
+  "$SCRIPT_DIR/apply-routes.sh"
   "$SCRIPT_DIR/openvpn-replay-wrapper"
   "$SCRIPT_DIR/openvpn-diversion.sh"
 )
@@ -252,6 +253,9 @@ restart_adguard_if_configured() {
     fi
   fi
 
+  log_info "Compiling modular routes for AdGuard Home"
+  sudo "$SCRIPT_DIR/apply-routes.sh" || true
+
   log_info "Starting/restarting AdGuard Home DNS service"
   if ! (cd "$compose_dir" && sudo docker compose up -d); then
     log_warn "Could not start AdGuard Home. Retry with: cd adguard && docker compose up -d"
@@ -437,6 +441,12 @@ echo 'DAEMON_CONF="/etc/hostapd/hostapd.conf"' | sudo tee /etc/default/hostapd >
 log_info "Installing manager script from scripts/"
 copy_file "$SCRIPT_DIR/hotspot-manager.py" /usr/local/bin/hotspot-manager.py 0755
 copy_file "$SCRIPT_DIR/github-vpn-routes.sh" /usr/local/bin/github-vpn-routes.sh 0755
+copy_file "$SCRIPT_DIR/apply-routes.sh" /usr/local/bin/apply-routes.sh 0755
+log_info "Installing modular route definitions to /etc/goodwifi/routes"
+sudo mkdir -p /etc/goodwifi/routes
+if [ -d "$CONFIG_DIR/routes" ]; then
+  sudo cp -r "$CONFIG_DIR/routes/"* /etc/goodwifi/routes/
+fi
 
 log_info "Installing shell aliases"
 install_aliases_for() {
@@ -448,6 +458,7 @@ install_aliases_for() {
     echo 'alias hotspot="sudo /usr/local/bin/hotspot-manager.py"'
     echo 'alias hs="sudo /usr/local/bin/hotspot-manager.py --status"'
     echo 'alias hf="sudo /usr/local/bin/hotspot-manager.py --fix"'
+    echo 'alias hr="sudo /usr/local/bin/apply-routes.sh"'
   } >> "$rc_file"
 }
 

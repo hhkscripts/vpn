@@ -1,0 +1,13 @@
+# Streaming Media Routes (Local Bypass / Direct ISP)
+# Routed through local ISP to avoid VPN bandwidth congestion and maximize streaming speed.
+
+# YouTube / Google Video
+youtube.com
+youtu.be
+googlevideo.com
+ytimg.com
+youtube-nocookie.com
+youtubekids.com
+yt.be
+youtubei.googleapis.com
+yt3.ggpht.com

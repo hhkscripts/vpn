@@ -1,0 +1,29 @@
+# Cryptocurrency Exchange Routes (Local Bypass / Direct ISP)
+# These domains and IP ranges bypass the VPN tunnel and route directly
+# through the local Myanmar ISP gateway to prevent exchange geoblocks and optimize P2P speeds.
+
+# Binance (Web, API, and CDNs)
+binance.com
+binance.me
+binance.info
+binance.org
+bnbstatic.com
+bntrace.com
+
+# Bybit (Web, API, WebSockets, App endpoints, and CDNs)
+bybit.com
+bybit.net
+bybit.org
+bybitglobal.com
+bybit-global.com
+bybit.biz
+bybit.cloud
+bybit-aws.com
+byapps.net
+bycsi.com
+bitverse.zone
+byd3c3.com
+bybdc6.com
+byabcde.com
+bytick.com
+by-financial.com

@@ -1,6 +1,9 @@
 # Optional reference config for GoodWifi-specific DNS routing.
 # Run AdGuard Home once, finish the web setup, then merge the `dns.ipset`
 # entries below into adguard/conf/AdGuardHome.yaml and restart the container.
+#
+# Alternatively, GoodWifi compiles modular route files from configs/routes/
+# into adguard/conf/ipset.conf and configures `dns.ipset_file` automatically:
 dns:
   bind_hosts:
     - 0.0.0.0
@@ -8,9 +11,10 @@ dns:
   upstream_dns:
     - 1.1.1.1
     - 8.8.8.8
+  ipset_file: /opt/adguardhome/conf/ipset.conf
   ipset:
     - github.com,githubusercontent.com,actions.githubusercontent.com,deb.debian.org,security.debian.org,archive.debian.org/vpn_domains
-    - binance.com,binance.me,binance.info,binance.org,bnbstatic.com,bntrace.com,kbzpay.com,kbzbank.com,kbzmoney.com,kbzpayapi.com,wavemoney.io,wavemoney.com.mm,wavepay.com.mm,wavepay.io,cbbank.com.mm,cbpay.com.mm,cbbank.net,ayabank.com,ayapay.com,ayapay.com.mm,ayainnovation.com,yomabank.com,yomanext.com,yoma.com.mm,uab.com.mm,uabpay.com.mm,uabpaybusiness.com,uabpayupi.com/local_routes
+    - binance.com,binance.me,binance.info,binance.org,bnbstatic.com,bntrace.com,bybit.com,bybit.net,bybit.org,bybitglobal.com,bybit-global.com,bybit.biz,bybit.cloud,bybit-aws.com,byapps.net,bycsi.com,bitverse.zone,byd3c3.com,bybdc6.com,byabcde.com,bytick.com,by-financial.com,kbzpay.com,kbzbank.com,kbzmoney.com,kbzpayapi.com,wavemoney.io,wavemoney.com.mm,wavepay.com.mm,wavepay.io,cbbank.com.mm,cbpay.com.mm,cbbank.net,ayabank.com,ayapay.com,ayapay.com.mm,ayainnovation.com,yomabank.com,yomanext.com,yoma.com.mm,uab.com.mm,uabpay.com.mm,uabpaybusiness.com,uabpayupi.com/local_routes
     - youtube.com,youtu.be,googlevideo.com,ytimg.com,youtube-nocookie.com,youtubekids.com,yt.be,youtubei.googleapis.com,yt3.ggpht.com/local_routes
 
 # Optional user-defined filtering rules.

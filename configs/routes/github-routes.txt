@@ -1,0 +1,18 @@
+# GitHub & Package Repository Routes (Active VPN)
+# These domains and IP ranges route through the active VPN tunnel (awg0 / tun0)
+# to bypass local ISP DPI/blocking and avoid git timeouts or apt update failures.
+
+# GitHub Services
+github.com
+githubusercontent.com
+actions.githubusercontent.com
+github.githubassets.com
+
+# Debian & Security Package Mirrors
+deb.debian.org
+security.debian.org
+archive.debian.org
+
+# Debian / Fastly Mirror IPv4 CIDRs
+151.101.0.0/16
+199.232.0.0/16

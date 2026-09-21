@@ -1,0 +1,37 @@
+# Myanmar Banking & Mobile Wallet Routes (Local Bypass / Direct ISP)
+# Routed directly through the local ISP to maintain fast, stable connectivity
+# and comply with domestic banking location checks.
+
+# KBZ Bank & KBZPay
+kbzpay.com
+kbzbank.com
+kbzmoney.com
+kbzpayapi.com
+
+# Wave Money & WavePay
+wavemoney.io
+wavemoney.com.mm
+wavepay.com.mm
+wavepay.io
+
+# CB Bank & CB Pay
+cbbank.com.mm
+cbpay.com.mm
+cbbank.net
+
+# AYA Bank & AYA Pay
+ayabank.com
+ayapay.com
+ayapay.com.mm
+ayainnovation.com
+
+# Yoma Bank & Yoma Next
+yomabank.com
+yomanext.com
+yoma.com.mm
+
+# UAB Bank & uabpay
+uab.com.mm
+uabpay.com.mm
+uabpaybusiness.com
+uabpayupi.com

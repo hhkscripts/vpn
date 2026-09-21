@@ -9,7 +9,7 @@ GoodWifi is a resilient Raspberry Pi Wi-Fi hotspot designed to defeat censorship
 - **Multi-Backend VPN**: Native support for **AmneziaWG (`awg0`)** (obfuscated anti-DPI WireGuard), **WireGuard (`wg0`)**, and **OpenVPN (`tun0`)**, with automatic health checking and failover.
 - **Selective Policy Routing**: Hotspot client traffic goes through the active VPN; Raspberry Pi host services, SSH, and Docker containers remain reachable on Ethernet (`eth0`).
 - **Selective GitHub Routing**: Routes GitHub API, Git, and GitHub Actions runner traffic through the VPN to bypass local censorship while keeping the rest of host traffic on local LAN.
-- **Selective Local Bypass (Binance / P2P / YouTube)**: Automatically routes specific services (such as Binance, local banking, and YouTube) through the local Myanmar ISP gateway via DNS ipsets (`local_routes`) to avoid VPN geo-blocking and optimize streaming speeds.
+- **Selective Local Bypass (Crypto / Banking / YouTube)**: Automatically routes specific services (such as Binance, Bybit, Myanmar banking, and YouTube) through the local Myanmar ISP gateway via DNS ipsets (`local_routes`) to avoid VPN geo-blocking and optimize streaming speeds.
 - **AdGuard Home DNS Filtering**: Blocks ads and trackers network-wide while dynamically populating policy routing ipsets.
 - **Telegram Bot Remote Control**: Manage VPN backends, inspect connected clients, and monitor system health with interactive inline buttons and Telegram Premium status emojis.
 
@@ -54,6 +54,7 @@ Traffic is split dynamically using Linux policy routing, packet marks, and ipset
 - `configs/20-hotspot-manager`: NetworkManager dispatcher script ensuring VPN policy on network change.
 - `scripts/hotspot-manager.py`: Complete CLI management tool for status, switching backends, and self-healing.
 - `scripts/github-vpn-routes.sh`: Fetches published GitHub IPv4 CIDRs and loads them into `vpn_routes`.
+- `scripts/apply-routes.sh`: Compiles modular route definitions (`configs/routes/`) into AdGuard Home and host ipsets.
 - `telegrambot/`: Python Telegram Bot with interactive inline keyboards, real-time alerts, and VPN switcher.
 
 ---
@@ -168,7 +169,7 @@ hf                     # Run automated self-healing fix
 GoodWifi clients query `10.42.0.1:53` for DNS. AdGuard Home performs ad-blocking, anti-tracking, and routes specific domains into kernel ipsets:
 
 - `github.com` & subdomains -> `vpn_domains`
-- `binance.com`, `bnbstatic.com`, Myanmar banks, `youtube.com`, `googlevideo.com`, `ytimg.com` -> `local_routes`
+- `binance.com`, `bybit.com`, Myanmar banks, `youtube.com`, `googlevideo.com` -> `local_routes`
 
 ### Verifying DNS & Ipsets
 

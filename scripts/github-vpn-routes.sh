@@ -94,12 +94,22 @@ fi
 if [ "$existing_count" -gt 0 ] && [ "$FORCE_REFRESH" != "1" ]; then
     log "Keeping existing GitHub IPv4 ranges ($existing_count entries)."
     log "Use GITHUB_ROUTES_FORCE_REFRESH=1 to download fresh ranges."
+    if [ -x "$SCRIPT_DIR/apply-routes.sh" ]; then
+        "$SCRIPT_DIR/apply-routes.sh"
+    elif [ -x "/usr/local/bin/apply-routes.sh" ]; then
+        /usr/local/bin/apply-routes.sh
+    fi
     exit 0
 fi
 
 if ! ip link show "$VPN_IF" >/dev/null 2>&1; then
     if [ "$existing_count" -gt 0 ]; then
         log "Interface '$VPN_IF' not ready for refresh; keeping $existing_count existing ranges."
+        if [ -x "$SCRIPT_DIR/apply-routes.sh" ]; then
+            "$SCRIPT_DIR/apply-routes.sh"
+        elif [ -x "/usr/local/bin/apply-routes.sh" ]; then
+            /usr/local/bin/apply-routes.sh
+        fi
         exit 0
     fi
     log "Interface '$VPN_IF' is not available. Connect VPN first."
@@ -115,6 +125,11 @@ if ! curl -fsS --interface "$VPN_IF" --connect-timeout 10 --max-time 60 \
     --retry 3 --retry-delay 2 --retry-all-errors "$META_URL" -o "$tmp_json"; then
     if [ "$existing_count" -gt 0 ]; then
         log "Download failed, but keeping existing/pre-seeded $existing_count ranges."
+        if [ -x "$SCRIPT_DIR/apply-routes.sh" ]; then
+            "$SCRIPT_DIR/apply-routes.sh"
+        elif [ -x "/usr/local/bin/apply-routes.sh" ]; then
+            /usr/local/bin/apply-routes.sh
+        fi
         exit 0
     fi
     log "Failed to download GitHub ranges and no local cache available."
@@ -178,6 +193,13 @@ if command -v netfilter-persistent >/dev/null 2>&1; then
     log "Saved netfilter state."
 else
     log "netfilter-persistent not found; rules are active until reboot."
+fi
+
+# Apply modular route definitions (crypto, banking, streaming, Bybit, Debian mirrors)
+if [ -x "$SCRIPT_DIR/apply-routes.sh" ]; then
+    "$SCRIPT_DIR/apply-routes.sh"
+elif [ -x "/usr/local/bin/apply-routes.sh" ]; then
+    /usr/local/bin/apply-routes.sh
 fi
 
 log "Verify:"
