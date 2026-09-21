@@ -1,13 +1,7 @@
 # Streaming Media Routes (Local Bypass / Direct ISP)
-# Routed through local ISP to avoid VPN bandwidth congestion and maximize streaming speed.
+# Add non-Google streaming domains here if you wish to route them directly
+# through the local ISP to optimize bandwidth.
+#
+# NOTE: Do NOT add YouTube or Google services here because Google's Anycast IP
+# infrastructure is shared with Google Cloud / Gemini / Antigravity APIs.
 
-# YouTube / Google Video
-youtube.com
-youtu.be
-googlevideo.com
-ytimg.com
-youtube-nocookie.com
-youtubekids.com
-yt.be
-youtubei.googleapis.com
-yt3.ggpht.com
