@@ -56,7 +56,13 @@ else
     fi
 fi
 
-VPN_MTU="${VPN_MTU:-1400}"
+if [ -z "${VPN_MTU:-}" ]; then
+    if [ "$VPN_IF" = "awg0" ] || [ "$VPN_IF" = "wg0" ]; then
+        VPN_MTU="1280"
+    else
+        VPN_MTU="${VPN_MTU:-1400}"
+    fi
+fi
 
 mkdir -p /run/lock
 exec 9>/run/lock/goodwifi-vpn-policy.lock
@@ -251,6 +257,9 @@ apply_policy() {
     remove_rule mangle FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200
     remove_rule mangle FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
     iptables -t mangle -C FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null ||         iptables -t mangle -A FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+    remove_rule mangle FORWARD -i "$VPN_IF" -d "$HOTSPOT_SUBNET" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+    iptables -t mangle -C FORWARD -i "$VPN_IF" -d "$HOTSPOT_SUBNET" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || \
+        iptables -t mangle -A FORWARD -i "$VPN_IF" -d "$HOTSPOT_SUBNET" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
     iptables -C INPUT -i "$HOTSPOT_IF" -p udp --dport 67:68 -j ACCEPT 2>/dev/null ||         iptables -A INPUT -i "$HOTSPOT_IF" -p udp --dport 67:68 -j ACCEPT
     iptables -C INPUT -i "$HOTSPOT_IF" -p tcp --dport 53 -j ACCEPT 2>/dev/null ||         iptables -A INPUT -i "$HOTSPOT_IF" -p tcp --dport 53 -j ACCEPT
@@ -298,6 +307,7 @@ cleanup_policy() {
     remove_rule mangle PREROUTING -s "$HOTSPOT_SUBNET" -m set --match-set "$LEGACY_LOCAL_IPSET" dst -j MARK --set-mark 0
     remove_rule mangle FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1200
     remove_rule mangle FORWARD -s "$HOTSPOT_SUBNET" -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+    remove_rule mangle FORWARD -i "$VPN_IF" -d "$HOTSPOT_SUBNET" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
     remove_rule filter FORWARD -i "$HOTSPOT_IF" -o "$VPN_IF" -s "$HOTSPOT_SUBNET" -j ACCEPT
     remove_rule filter FORWARD -i "$VPN_IF" -o "$HOTSPOT_IF" -d "$HOTSPOT_SUBNET" -m state --state RELATED,ESTABLISHED -j ACCEPT
     remove_rule filter FORWARD -i "$HOTSPOT_IF" -o "$LAN_IF" -j ACCEPT

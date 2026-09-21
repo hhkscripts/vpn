@@ -42,28 +42,26 @@ case "${2:-}" in
             if ping -c 2 -W 3 "$PING_TARGET" >/dev/null 2>&1; then
                 log_message "Internet available"
                 CLIENTS="$(iw dev "$HOTSPOT_IF" station dump 2>/dev/null | awk '/Station/ {count++} END {print count + 0}')"
-                if [ "$CLIENTS" -gt 0 ]; then
-                    log_message "Clients connected ($CLIENTS), ensuring VPN policy..."
-                    if active_if="$(get_active_vpn)"; then
-                        log_message "Active VPN found ($active_if), applying policy..."
-                        if [ -x "$POLICY_SCRIPT" ]; then
-                            "$POLICY_SCRIPT" "$active_if" up >> "$LOG_FILE" 2>&1 || true
-                        fi
-                    elif [ -x "$HOTSPOT_MGR" ]; then
-                        log_message "VPN not active, restarting configured backend ($VPN_BACKEND)..."
-                        python3 "$HOTSPOT_MGR" --restart-vpn >> "$LOG_FILE" 2>&1 || true
-                    elif [ "$VPN_BACKEND" = "awg0" ] && command -v awg-quick >/dev/null 2>&1; then
-                        log_message "Starting awg0..."
-                        awg-quick up awg0 >> "$LOG_FILE" 2>&1 || true
-                    else
-                        vpn_conn="${VPN_UUID:-}"
-                        if [ -z "$vpn_conn" ] || ! nmcli -t -f NAME connection show 2>/dev/null | grep -qx "$vpn_conn"; then
-                            vpn_conn="$(nmcli -t -f NAME,TYPE connection show 2>/dev/null | awk -F: '$2=="vpn" || $2=="wireguard" {print $1; exit}')"
-                        fi
-                        if [ -n "$vpn_conn" ]; then
-                            log_message "Activating VPN connection: $vpn_conn..."
-                            nmcli connection up "$vpn_conn" >> "$LOG_FILE" 2>&1 || true
-                        fi
+                log_message "Hotspot clients connected ($CLIENTS), ensuring VPN policy..."
+                if active_if="$(get_active_vpn)"; then
+                    log_message "Active VPN found ($active_if), applying policy..."
+                    if [ -x "$POLICY_SCRIPT" ]; then
+                        "$POLICY_SCRIPT" "$active_if" up >> "$LOG_FILE" 2>&1 || true
+                    fi
+                elif [ -x "$HOTSPOT_MGR" ]; then
+                    log_message "VPN not active, restarting configured backend ($VPN_BACKEND)..."
+                    python3 "$HOTSPOT_MGR" --restart-vpn >> "$LOG_FILE" 2>&1 || true
+                elif [ "$VPN_BACKEND" = "awg0" ] && command -v awg-quick >/dev/null 2>&1; then
+                    log_message "Starting awg0..."
+                    awg-quick up awg0 >> "$LOG_FILE" 2>&1 || true
+                else
+                    vpn_conn="${VPN_UUID:-}"
+                    if [ -z "$vpn_conn" ] || ! nmcli -t -f NAME connection show 2>/dev/null | grep -qx "$vpn_conn"; then
+                        vpn_conn="$(nmcli -t -f NAME,TYPE connection show 2>/dev/null | awk -F: '$2=="vpn" || $2=="wireguard" {print $1; exit}')"
+                    fi
+                    if [ -n "$vpn_conn" ]; then
+                        log_message "Activating VPN connection: $vpn_conn..."
+                        nmcli connection up "$vpn_conn" >> "$LOG_FILE" 2>&1 || true
                     fi
                 fi
             else

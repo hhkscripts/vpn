@@ -110,6 +110,48 @@ test_policy_sets_default_mtu_on_existing_tun() {
 
 test_policy_sets_default_mtu_on_existing_tun
 
+test_policy_sets_default_mtu_on_existing_awg() {
+  local tmp fakebin policy_copy result
+  tmp="$(mktemp -d)"
+  fakebin="$tmp/bin"
+  policy_copy="$tmp/policy"
+  mkdir -p "$fakebin" "$tmp/run/lock"
+
+  cat > "$fakebin/ip" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >> "$IP_LOG"
+exit 0
+EOF
+  cat > "$fakebin/iptables" <<'EOF'
+#!/bin/sh
+case " $* " in
+  *" -C "*) exit 1 ;;
+esac
+exit 0
+EOF
+  cp "$fakebin/iptables" "$fakebin/ip6tables"
+  for command in ipset nmcli; do
+    printf '#!/bin/sh\nexit 0\n' > "$fakebin/$command"
+  done
+  chmod +x "$fakebin"/*
+  sed -e "s#/run/lock#$tmp/run/lock#g" \
+      -e "s#/proc/sys/net/ipv4/ip_forward#$tmp/ip_forward#g" \
+      "$POLICY" > "$policy_copy"
+  chmod +x "$policy_copy"
+  : > "$tmp/ip_forward"
+
+  if IP_LOG="$tmp/ip.log" PATH="$fakebin:$PATH" "$policy_copy" awg0 apply; then
+    result=0
+  else
+    result=$?
+  fi
+  grep -qx 'link set dev awg0 mtu 1280' "$tmp/ip.log"
+  rm -rf "$tmp"
+  return "$result"
+}
+
+test_policy_sets_default_mtu_on_existing_awg
+
 test_policy_propagates_mtu_set_failure() {
   if run_policy_with_existing_tun 1; then
     echo "Policy must fail when the existing tunnel MTU cannot be set" >&2

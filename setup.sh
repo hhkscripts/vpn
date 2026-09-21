@@ -507,6 +507,12 @@ sudo systemctl daemon-reload
 sudo systemctl restart NetworkManager
 sudo systemctl unmask hostapd 2>/dev/null || true
 sudo systemctl enable hostapd dnsmasq 2>/dev/null || true
+if [ -f /etc/amnezia/amneziawg/awg0.conf ]; then
+  sudo systemctl enable awg-quick@awg0 2>/dev/null || true
+fi
+if [ -f /etc/wireguard/wg0.conf ]; then
+  sudo systemctl enable wg-quick@wg0 2>/dev/null || true
+fi
 sudo systemctl restart hostapd dnsmasq 2>/dev/null || true
 restart_adguard_if_configured
 restart_telegrambot_if_configured

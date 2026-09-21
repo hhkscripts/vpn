@@ -540,12 +540,19 @@ def switch_vpn(target: str) -> bool:
     if target in ["awg0", "wg0"]:
         run_args(["sudo", "nmcli", "connection", "down", vpn_name], timeout=15)
         svc = "awg-quick@awg0" if target == "awg0" else "wg-quick@wg0"
+        other_svc = "wg-quick@wg0" if target == "awg0" else "awg-quick@awg0"
+        run_args(["sudo", "systemctl", "disable", other_svc], timeout=15)
+        run_args(["sudo", "systemctl", "enable", svc], timeout=15)
         run_args(["sudo", "systemctl", "start", svc], timeout=30)
         wait_for_interface(target, timeout=10)
         ok = apply_vpn_policy(target)
         refresh_github_routes()
         return ok
     elif target == "tun0":
+        run_args(
+            ["sudo", "systemctl", "disable", "awg-quick@awg0", "wg-quick@wg0"],
+            timeout=15,
+        )
         run_args(
             ["sudo", "systemctl", "stop", "awg-quick@awg0", "wg-quick@wg0"], timeout=15
         )
