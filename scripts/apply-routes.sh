@@ -25,14 +25,28 @@ else
 fi
 
 # Determine AdGuard Home config directory
-if [ -d "$PROJECT_DIR/adguard/conf" ]; then
+if [ -n "${GOODWIFI_ADGUARD_CONF_DIR:-}" ] && [ -d "$GOODWIFI_ADGUARD_CONF_DIR" ]; then
+    ADGUARD_CONF_DIR="$GOODWIFI_ADGUARD_CONF_DIR"
+elif [ -d "$PROJECT_DIR/adguard/conf" ]; then
     ADGUARD_CONF_DIR="$PROJECT_DIR/adguard/conf"
 elif [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT/adguard/conf" ]; then
     ADGUARD_CONF_DIR="$REPO_ROOT/adguard/conf"
+elif [ -d "/home/hhk/Projects/vpn/adguard/conf" ]; then
+    ADGUARD_CONF_DIR="/home/hhk/Projects/vpn/adguard/conf"
+elif [ -d "/opt/goodwifi/adguard/conf" ]; then
+    ADGUARD_CONF_DIR="/opt/goodwifi/adguard/conf"
 elif [ -d "/etc/goodwifi/adguard/conf" ]; then
     ADGUARD_CONF_DIR="/etc/goodwifi/adguard/conf"
 else
     ADGUARD_CONF_DIR=""
+fi
+
+# Fallback: inspect running docker container mount if available
+if [ -z "$ADGUARD_CONF_DIR" ] && command -v docker >/dev/null 2>&1; then
+    docker_mount="$(docker inspect adguardhome --format '{{range .Mounts}}{{if eq .Destination "/opt/adguardhome/conf"}}{{.Source}}{{end}}{{end}}' 2>/dev/null || true)"
+    if [ -n "$docker_mount" ] && [ -d "$docker_mount" ]; then
+        ADGUARD_CONF_DIR="$docker_mount"
+    fi
 fi
 
 LOCAL_ROUTES_IPSET="${LOCAL_ROUTES_IPSET:-local_routes}"
