@@ -144,7 +144,9 @@ fi
 local_cidr_count=0
 if [ -s "$local_cidrs" ]; then
     while IFS= read -r cidr; do
-        if [ "$DRY_RUN" -eq 0 ]; then [ -n "$cidr" ] && ipset add "$LOCAL_ROUTES_IPSET" "$cidr" -exist 2>/dev/null || true; fi
+        if [ "$DRY_RUN" -eq 0 ] && [ -n "$cidr" ]; then
+            ipset add "$LOCAL_ROUTES_IPSET" "$cidr" -exist 2>/dev/null || true
+        fi
     done < "$local_cidrs"
     local_cidr_count="$(sort -u "$local_cidrs" | wc -l | tr -d ' ')"
 fi
@@ -165,7 +167,9 @@ fi
 vpn_cidr_count=0
 if [ -s "$vpn_cidrs" ]; then
     while IFS= read -r cidr; do
-        if [ "$DRY_RUN" -eq 0 ]; then [ -n "$cidr" ] && ipset add "$VPN_ROUTES_IPSET" "$cidr" -exist 2>/dev/null || true; fi
+        if [ "$DRY_RUN" -eq 0 ] && [ -n "$cidr" ]; then
+            ipset add "$VPN_ROUTES_IPSET" "$cidr" -exist 2>/dev/null || true
+        fi
     done < "$vpn_cidrs"
     vpn_cidr_count="$(sort -u "$vpn_cidrs" | wc -l | tr -d ' ')"
 fi
