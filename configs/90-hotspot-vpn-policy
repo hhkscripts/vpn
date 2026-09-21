@@ -30,29 +30,63 @@ IP6TABLES_CHAIN="${IP6TABLES_CHAIN:-GOODWIFI6_FORWARD}"
 MANAGEMENT_SUBNETS="${MANAGEMENT_SUBNETS:-10.8.0.0/24 192.168.100.0/24 192.168.1.0/24}"
 IPV6_LEAK_PROTECTION="${IPV6_LEAK_PROTECTION:-drop}"
 
-# Determine VPN_IF dynamically or from argument
-if [ -n "$1" ] && [ "$1" != "apply" ] && [ "$1" != "cleanup" ] && [ "$1" != "up" ] && [ "$1" != "down" ] && [ "$1" != "vpn-up" ] && [ "$1" != "vpn-down" ] && [ "$1" != "connectivity-change" ]; then
-    VPN_IF="$1"
-elif [ "$VPN_BACKEND" = "awg0" ]; then
-    VPN_IF="awg0"
-elif [ "$VPN_BACKEND" = "wg0" ]; then
-    VPN_IF="wg0"
-elif [ "$VPN_BACKEND" = "tun0" ]; then
-    VPN_IF="tun0"
-else
-    # auto mode: prioritize active interfaces with an IPv4 address
-    if ip -4 addr show awg0 2>/dev/null | grep -q "inet "; then
-        VPN_IF="awg0"
-    elif ip -4 addr show wg0 2>/dev/null | grep -q "inet "; then
-        VPN_IF="wg0"
-    elif ip -4 addr show tun0 2>/dev/null | grep -q "inet "; then
-        VPN_IF="tun0"
-    elif ip link show awg0 >/dev/null 2>&1; then
-        VPN_IF="awg0"
-    elif ip link show wg0 >/dev/null 2>&1; then
-        VPN_IF="wg0"
+is_vpn_action() {
+    case "$1" in
+        apply|cleanup|up|down|vpn-up|vpn-down|connectivity-change) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+is_vpn_iface() {
+    case "$1" in
+        awg*|wg*|tun*|tap*) return 0 ;;
+        *)
+            if [ -n "${VPN_BACKEND:-}" ] && [ "$VPN_BACKEND" != "auto" ] && [ "$1" = "$VPN_BACKEND" ]; then
+                return 0
+            fi
+            return 1
+            ;;
+    esac
+}
+
+ACTION=""
+if [ -n "${1:-}" ]; then
+    if is_vpn_action "$1"; then
+        ACTION="$1"
+    elif is_vpn_iface "$1"; then
+        VPN_IF="$1"
+        ACTION="${2:-apply}"
     else
+        # NetworkManager dispatcher calls all scripts for every network device event
+        # (e.g. eth0, wlan0, docker0, veth*). Events for non-VPN devices must be ignored.
+        exit 0
+    fi
+else
+    ACTION="${2:-apply}"
+fi
+
+if [ -z "${VPN_IF:-}" ]; then
+    if [ "$VPN_BACKEND" = "awg0" ]; then
+        VPN_IF="awg0"
+    elif [ "$VPN_BACKEND" = "wg0" ]; then
+        VPN_IF="wg0"
+    elif [ "$VPN_BACKEND" = "tun0" ]; then
         VPN_IF="tun0"
+    else
+        # auto mode: prioritize active interfaces with an IPv4 address
+        if ip -4 addr show awg0 2>/dev/null | grep -q "inet "; then
+            VPN_IF="awg0"
+        elif ip -4 addr show wg0 2>/dev/null | grep -q "inet "; then
+            VPN_IF="wg0"
+        elif ip -4 addr show tun0 2>/dev/null | grep -q "inet "; then
+            VPN_IF="tun0"
+        elif ip link show awg0 >/dev/null 2>&1; then
+            VPN_IF="awg0"
+        elif ip link show wg0 >/dev/null 2>&1; then
+            VPN_IF="wg0"
+        else
+            VPN_IF="tun0"
+        fi
     fi
 fi
 
@@ -333,7 +367,7 @@ cleanup_policy() {
     ip route flush table "$TABLE_ID" 2>/dev/null || true
 }
 
-case "$2" in
+case "$ACTION" in
     apply)
         apply_policy
         ;;

@@ -152,6 +152,40 @@ EOF
 
 test_policy_sets_default_mtu_on_existing_awg
 
+test_policy_ignores_non_vpn_interfaces() {
+  local tmp fakebin policy_copy
+  tmp="$(mktemp -d)"
+  fakebin="$tmp/bin"
+  policy_copy="$tmp/policy"
+  mkdir -p "$fakebin" "$tmp/run/lock"
+  trap 'rm -rf "$tmp"' RETURN
+
+  cat > "$fakebin/ip" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >> "$IP_LOG"
+exit 0
+EOF
+  chmod +x "$fakebin/ip"
+  sed -e "s#/run/lock#$tmp/run/lock#g" \
+      -e "s#/proc/sys/net/ipv4/ip_forward#$tmp/ip_forward#g" \
+      "$POLICY" > "$policy_copy"
+  chmod +x "$policy_copy"
+
+  for dev in eth0 wlan0 docker0 br-12345 veth12345; do
+    : > "$tmp/ip.log"
+    if ! IP_LOG="$tmp/ip.log" PATH="$fakebin:$PATH" "$policy_copy" "$dev" up; then
+      echo "Policy must exit 0 for non-VPN interface $dev" >&2
+      return 1
+    fi
+    if [ -s "$tmp/ip.log" ]; then
+      echo "Policy must not execute network commands for non-VPN interface $dev" >&2
+      return 1
+    fi
+  done
+}
+
+test_policy_ignores_non_vpn_interfaces
+
 test_policy_propagates_mtu_set_failure() {
   if run_policy_with_existing_tun 1; then
     echo "Policy must fail when the existing tunnel MTU cannot be set" >&2

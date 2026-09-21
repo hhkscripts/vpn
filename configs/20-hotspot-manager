@@ -46,7 +46,10 @@ case "${2:-}" in
                 if active_if="$(get_active_vpn)"; then
                     log_message "Active VPN found ($active_if), applying policy..."
                     if [ -x "$POLICY_SCRIPT" ]; then
-                        "$POLICY_SCRIPT" "$active_if" up >> "$LOG_FILE" 2>&1 || true
+                        "$POLICY_SCRIPT" "$active_if" apply >> "$LOG_FILE" 2>&1 || true
+                    fi
+                    if [ -x /usr/local/bin/github-vpn-routes.sh ]; then
+                        /usr/local/bin/github-vpn-routes.sh >> "$LOG_FILE" 2>&1 || true
                     fi
                 elif [ -x "$HOTSPOT_MGR" ]; then
                     log_message "VPN not active, restarting configured backend ($VPN_BACKEND)..."
