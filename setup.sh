@@ -240,11 +240,9 @@ restart_adguard_if_configured() {
       log_info "Migrating AdGuard Home ipset rule from local_bypass_domains to local_routes"
       sudo sed -i 's#/local_bypass_domains#/local_routes#g' "$compose_dir/conf/AdGuardHome.yaml"
     fi
-    if ! sudo grep -q "youtube.com" "$compose_dir/conf/AdGuardHome.yaml" 2>/dev/null; then
-      if sudo grep -q "local_routes" "$compose_dir/conf/AdGuardHome.yaml" 2>/dev/null; then
-        log_info "Adding YouTube domains to AdGuard Home local_routes"
-        sudo sed -i '0,/\/local_routes/s//&\n    - youtube.com,youtu.be,googlevideo.com,ytimg.com,youtube-nocookie.com,youtubekids.com,yt.be,youtubei.googleapis.com,yt3.ggpht.com\/local_routes/' "$compose_dir/conf/AdGuardHome.yaml"
-      fi
+    if sudo grep -q "youtube.com" "$compose_dir/conf/AdGuardHome.yaml" 2>/dev/null; then
+      log_info "Removing YouTube domains from AdGuard Home local_routes"
+      sudo sed -i '/youtube\.com/d' "$compose_dir/conf/AdGuardHome.yaml"
     fi
     if sudo grep -q "@@||googleads" "$compose_dir/conf/AdGuardHome.yaml" 2>/dev/null; then
       log_info "Disabling Google Ads whitelist rules in AdGuard Home configuration"
